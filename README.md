@@ -30,7 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 - Use own or public  server
 - Subscription management
-- SponsorBlock
+- SponsorBlock + DeArrow (click bait removal)
 - Video view/progress tracking
 - Playlists
 - background playback
@@ -49,14 +49,15 @@ It is also available on F-Droid, IzzyOnDroid, and Accrescent:
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
      alt="Get it on F-Droid"
      height="80">](https://f-droid.org/packages/com.github.lamarios.clipious/)
-[<img src="https://gitlab.com/IzzyOnDroid/repo/-/raw/master/assets/IzzyOnDroid.png"
-      alt='Get it on IzzyOnDroid'
-      height="80">](https://apt.izzysoft.de/fdroid/index/apk/com.github.lamarios.clipious/)
 [<img src="https://accrescent.app/badges/get-it-on.png"
       alt='Get it on Accrescent'
       height="80">](https://accrescent.app/app/com.github.lamarios.clipious)
 
 Or download the latest APK from the [Releases Section](https://github.com/lamarios/clipious/releases/latest).
+
+### TV
+
+For TV users it is recommended to use [Accrescent](https://accrescent.app) as it works well enough on TV and allows updates.
 
 ## Screenshots
 ### Phone
@@ -95,10 +96,35 @@ To get started, you'll need to create a fork of the repo and might run:
 ```
 git submodule init
 git submodule update
+#enable git pre commit hooks for auto formatting
+./submodules/flutter/bin/dart run tools/setup_git_hooks.dart
+```
+or using nix that will handle all the above plus starting a working invidious instance with user test and password test.
+```
+nix-shell
 ```
 Flutter itself is used as a submodule of this repo in order to pin the version I want to use to enable reproducible build on f-droid
 
 You'll need to also set up your android SDK and a device / emulator to run the app on.
+
+#### Tests
+
+The app has some tests and they expect to have a locally running invidious server, with a test user (password test).
+
+The easy way it to use [nix](https://nixos.org) and run 
+
+```
+nix-shell
+```
+
+That will spin a postgres DB, an invidious server and the required user (this is how the tests are run in the ci/cd).
+
+Nothing keeps you to run your own user docker or other ways.
+
+Alternatively, you can directly run the tests with its environment:
+```
+nix-shell --run './submodules/flutter/bin/flutter test'
+```
 
 ### Translations
 

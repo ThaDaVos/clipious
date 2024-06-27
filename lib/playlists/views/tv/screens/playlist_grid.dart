@@ -1,28 +1,35 @@
+import 'package:auto_route/annotations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:invidious/playlists/models/playlist.dart';
 import 'package:invidious/playlists/states/playlist_list.dart';
 import 'package:invidious/playlists/views/components/playlist_in_list.dart';
-import 'package:invidious/utils/models/paginatedList.dart';
+import 'package:invidious/utils/models/paginated_list.dart';
 import 'package:invidious/utils/views/components/placeholders.dart';
 import 'package:invidious/utils/views/tv/components/tv_overscan.dart';
 
-class TvPlaylistGridView extends StatelessWidget {
+@RoutePage()
+class TvPlaylistGridScreen extends StatelessWidget {
   final PaginatedList<Playlist> playlistList;
   final String? tags;
 
-  const TvPlaylistGridView({Key? key, required this.playlistList, this.tags}) : super(key: key);
+  const TvPlaylistGridScreen(
+      {super.key, required this.playlistList, this.tags});
 
   @override
   Widget build(BuildContext context) {
     var locals = AppLocalizations.of(context)!;
     var textTheme = Theme.of(context).textTheme;
     return BlocProvider(
-      create: (context) => PlaylistListCubit(PlaylistListState(playlistList)),
+      create: (context) =>
+          PlaylistListCubit(PlaylistListState(paginatedList: playlistList)),
       child: Scaffold(
         body: TvOverscan(
-          child: BlocBuilder<PlaylistListCubit, PlaylistListState>(builder: (context, _) {
+          child: BlocBuilder<PlaylistListCubit, PlaylistListState>(
+              builder: (context, state) {
+            var cubit = context.read<PlaylistListCubit>();
+
             return Column(
               children: [
                 Row(
@@ -31,22 +38,32 @@ class TvPlaylistGridView extends StatelessWidget {
                       locals.playlists,
                       style: textTheme.titleLarge,
                     ),
-                    _.loading
+                    state.loading
                         ? const Padding(
                             padding: EdgeInsets.all(8.0),
-                            child: SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2)),
+                            child: SizedBox(
+                                width: 15,
+                                height: 15,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
                           )
                         : const SizedBox.shrink()
                   ],
                 ),
                 Expanded(
                     child: GridView.count(
-                  controller: _.scrollController,
+                  controller: cubit.scrollController,
                   childAspectRatio: 16 / 13,
                   crossAxisCount: 3,
                   children: [
-                    ..._.playlists.map((e) => PlaylistInList(key: ValueKey(e.playlistId), playlist: e, canDeleteVideos: false, isTv: true)).toList(),
-                    if (_.loading) ...repeatWidget(() => const TvPlaylistPlaceHolder(), count: 10)
+                    ...state.playlists.map((e) => PlaylistInList(
+                        key: ValueKey(e.playlistId),
+                        playlist: e,
+                        canDeleteVideos: false,
+                        isTv: true)),
+                    if (state.loading)
+                      ...repeatWidget(() => const TvPlaylistPlaceHolder(),
+                          count: 10)
                   ],
                 ))
               ],

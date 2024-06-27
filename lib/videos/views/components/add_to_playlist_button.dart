@@ -1,50 +1,175 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:invidious/videos/states/add_to_playlist_button.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:invidious/globals.dart';
+import 'package:invidious/settings/models/errors/invidious_service_error.dart';
+import 'package:invidious/utils.dart';
+import 'package:invidious/videos/states/add_to_playlist.dart';
 
-import 'add_to_playlist.dart';
+import 'add_to_playlist_dialog.dart';
 
-class VideoAddToPlaylistButton extends StatelessWidget {
-  String? videoId;
+enum AddToPlayListButtonType {
+  appBar,
+  modalSheet;
+}
 
-  VideoAddToPlaylistButton({Key? key, this.videoId}) : super(key: key);
+const buttonScaleOffset = 0.8;
+
+class AddToPlayListButton extends StatelessWidget {
+  final String videoId;
+  final AddToPlayListButtonType type;
+  final Function? afterAdd;
+
+  const AddToPlayListButton(
+      {super.key,
+      required this.videoId,
+      this.type = AddToPlayListButtonType.appBar,
+      this.afterAdd});
+
+  showAddToPlaylistDialog(BuildContext context) {
+    var locals = AppLocalizations.of(context)!;
+    var cubit = context.read<AddToPlaylistCubit>();
+    AddToPlaylistDialog.showAddToPlaylistDialog(context,
+        playlists: cubit.state.playlists,
+        videoId: videoId, onAdd: (selectedPlaylistId) async {
+      try {
+        await cubit.saveVideoToPlaylist(selectedPlaylistId);
+        if (afterAdd != null) {
+          afterAdd!();
+        }
+      } catch (err) {
+        if (context.mounted) {
+          showAlertDialog(context, locals.errorAddingVideoToPlaylist, [
+            (err is InvidiousServiceError)
+                ? Text(err.message)
+                : Text(err.runtimeType.toString())
+          ]);
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    var textTheme = Theme.of(context).textTheme;
     var colors = Theme.of(context).colorScheme;
-    return BlocBuilder<AddToPlaylistButtonCubit, AddToPlaylistButtonState>(
-      builder: (context, _) => Visibility(
-        visible: _.isLoggedIn,
-        child: Stack(
-          children: [
-            IconButton(
-              style: ButtonStyle(padding: MaterialStateProperty.all<EdgeInsets>(EdgeInsets.zero)),
-              onPressed: () => AddToPlaylist.showAddToPlaylistDialog(context, _.videoId!),
-              icon: const Icon(
-                Icons.add,
+    var textTheme = Theme.of(context).textTheme;
+    var locals = AppLocalizations.of(context)!;
+
+    return BlocProvider(
+      create: (BuildContext context) =>
+          AddToPlaylistCubit(AddToPlaylistController(videoId)),
+      child: BlocBuilder<AddToPlaylistCubit, AddToPlaylistController>(
+          builder: (context, state) {
+        var cubit = context.read<AddToPlaylistCubit>();
+        return switch (type) {
+          (AddToPlayListButtonType.modalSheet) => Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedCrossFade(
+                    crossFadeState: state.loading
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    firstChild: IconButton.filledTonal(
+                        onPressed: () => showAddToPlaylistDialog(context),
+                        icon: const Icon(Icons.playlist_add)),
+                    secondChild: FilledButton.tonal(
+                        style: ButtonStyle(
+                            shape:
+                                WidgetStateProperty.all(const CircleBorder())),
+                        onPressed: () {},
+                        child: const SizedBox(
+                            height: 10,
+                            width: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1,
+                            ))),
+                    duration: animationDuration,
+                    firstCurve: Curves.easeInOutQuad,
+                    secondCurve: Curves.easeInOutQuad,
+                    sizeCurve: Curves.easeInOutQuad,
+                  ),
+                  Text(locals.addToPlaylist)
+                ],
               ),
             ),
-            _.playListCount > 0
-                ? Positioned(
-                    top: 1,
-                    right: 1,
-                    child: GestureDetector(
-                      onTap: () => AddToPlaylist.showAddToPlaylistDialog(context, _.videoId!),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(color: colors.secondaryContainer, shape: BoxShape.circle),
-                        child: Text(
-                          _.playListCount.toString(),
-                          style: textTheme.labelSmall,
-                        ),
+          (AddToPlayListButtonType.appBar) => Row(
+              children: [
+                IconButton(
+                  onPressed: state.loading ? () {} : cubit.toggleLike,
+                  icon: state.isVideoLiked
+                      ? const Icon(Icons.favorite)
+                      : const Icon(Icons.favorite_border),
+                )
+                    .animate(target: state.loading ? 0 : 1)
+                    .fade(begin: 0.2, duration: animationDuration)
+                    .scale(
+                        begin:
+                            const Offset(buttonScaleOffset, buttonScaleOffset),
+                        duration: animationDuration,
+                        curve: Curves.easeInOutQuad),
+                Stack(
+                  children: [
+                    IconButton(
+                      style: ButtonStyle(
+                          padding: WidgetStateProperty.all<EdgeInsets>(
+                              EdgeInsets.zero)),
+                      onPressed: state.loading
+                          ? () {}
+                          : () => showAddToPlaylistDialog(context),
+                      icon: const Icon(
+                        Icons.add,
                       ),
-                    ),
-                  )
-                : const SizedBox.shrink()
-          ],
-        ),
-      ),
+                    )
+                        .animate(target: state.loading ? 0 : 1)
+                        .fade(
+                          begin: 0.2,
+                          duration: animationDuration,
+                        )
+                        .scale(
+                            begin: const Offset(
+                                buttonScaleOffset, buttonScaleOffset),
+                            duration: animationDuration,
+                            curve: Curves.easeInOutQuad),
+                    state.playListCount > 0
+                        ? Positioned(
+                            top: 1,
+                            right: 1,
+                            child: GestureDetector(
+                              onTap: () => showAddToPlaylistDialog(context),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                    color: colors.secondaryContainer,
+                                    shape: BoxShape.circle),
+                                child: Text(
+                                  state.loading
+                                      ? '-'
+                                      : state.playListCount.toString(),
+                                  style: textTheme.labelSmall,
+                                ),
+                              )
+                                  .animate(target: state.loading ? 0 : 1)
+                                  .fade(
+                                    begin: 0.2,
+                                    duration: animationDuration,
+                                  )
+                                  .scale(
+                                      begin: const Offset(
+                                          buttonScaleOffset, buttonScaleOffset),
+                                      duration: animationDuration,
+                                      curve: Curves.easeInOutQuad),
+                            ),
+                          )
+                        : const SizedBox.shrink()
+                  ],
+                )
+              ],
+            )
+        };
+      }),
     );
   }
 }

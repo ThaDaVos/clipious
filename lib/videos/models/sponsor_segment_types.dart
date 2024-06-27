@@ -1,17 +1,21 @@
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:invidious/database.dart';
+
+import '../../settings/models/db/settings.dart';
 
 enum SponsorSegmentType {
-  sponsor,
-  selfpromo,
-  interaction,
-  intro,
-  outro,
-  preview,
-  music_offtopic,
-  filler;
+  sponsor('sponsor'),
+  selfpromo('selfpromo'),
+  interaction('interaction'),
+  intro('intro'),
+  outro('outro'),
+  preview('preview'),
+  musicOffTopic('music_offtopic'),
+  filler('filler');
 
-  String settingsName() => '$SPONSOR_BLOCK_PREFIX$name';
+  final String segmentName;
+
+  const SponsorSegmentType(this.segmentName);
+  String settingsName() => '$sponsorBlockPrefix$name';
 
   static String getLabel(SponsorSegmentType type, AppLocalizations locals) {
     switch (type) {
@@ -27,14 +31,15 @@ enum SponsorSegmentType {
         return locals.sponsorBlockCategoryOutro;
       case SponsorSegmentType.preview:
         return locals.sponsorBlockCategoryPreview;
-      case SponsorSegmentType.music_offtopic:
+      case SponsorSegmentType.musicOffTopic:
         return locals.sponsorBlockCategoryMusicOffTopic;
       case SponsorSegmentType.filler:
         return locals.sponsorBlockCategoryFiller;
     }
   }
 
-  static String getDescription(SponsorSegmentType type, AppLocalizations locals) {
+  static String getDescription(
+      SponsorSegmentType type, AppLocalizations locals) {
     switch (type) {
       case SponsorSegmentType.sponsor:
         return locals.sponsorBlockCategorySponsorDescription;
@@ -48,7 +53,7 @@ enum SponsorSegmentType {
         return locals.sponsorBlockCategoryOutroDescription;
       case SponsorSegmentType.preview:
         return locals.sponsorBlockCategoryPreviewDescription;
-      case SponsorSegmentType.music_offtopic:
+      case SponsorSegmentType.musicOffTopic:
         return locals.sponsorBlockCategoryMusicOffTopicDescription;
       case SponsorSegmentType.filler:
         return locals.sponsorBlockCategoryFillerDescription;

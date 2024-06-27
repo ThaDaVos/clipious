@@ -1,17 +1,19 @@
-import 'package:application_icon/application_icon.dart';
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:invidious/app/states/app.dart';
-import 'package:invidious/main.dart';
+import 'package:invidious/router.dart';
 import 'package:invidious/settings/states/server_list_settings.dart';
 import 'package:invidious/settings/views/components/manager_server_inner.dart';
+import 'package:invidious/utils/views/components/app_icon.dart';
 import 'package:invidious/welcome_wizard/states/welcome_wizard.dart';
 
 import '../../../settings/models/db/server.dart';
 
-class WelcomeWizard extends StatelessWidget {
-  const WelcomeWizard({super.key});
+@RoutePage()
+class WelcomeWizardScreen extends StatelessWidget {
+  const WelcomeWizardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +25,9 @@ class WelcomeWizard extends StatelessWidget {
       providers: [
         BlocProvider(create: (context) => WelcomeWizardCubit(null)),
         BlocProvider(
-          create: (context) => ServerListSettingsCubit(ServerListSettingsState(publicServers: [], dbServers: []), context.read<AppCubit>()),
+          create: (context) => ServerListSettingsCubit(
+              const ServerListSettingsState(publicServers: [], dbServers: []),
+              context.read<AppCubit>()),
         )
       ],
       child: BlocListener<ServerListSettingsCubit, ServerListSettingsState>(
@@ -34,41 +38,40 @@ class WelcomeWizard extends StatelessWidget {
           builder: (context, server) {
             var cubit = context.read<WelcomeWizardCubit>();
             return Scaffold(
-              appBar: AppBar(
-                backgroundColor: colors.background,
-                toolbarHeight: 0,
-                scrolledUnderElevation: 0,
-              ),
               extendBodyBehindAppBar: true,
-              backgroundColor: colors.background,
+              backgroundColor: colors.surface,
               body: SafeArea(
                   top: true,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                    const SizedBox(width: 150, height: 150, child: AppIconImage()),
-                    Text(
-                      'Clipious',
-                      style: textTheme.displaySmall?.copyWith(color: colors.primary),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(locals.wizardIntro),
-                    ),
-                    const Expanded(child: ManagerServersView()),
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: FilledButton.tonal(
-                          onPressed: server != null
-                              ? () {
-                                  navigatorKey.currentState
-                                      ?.push(MaterialPageRoute(
-                                        builder: (context) => const Home(),
-                                      ))
-                                      .then((value) => cubit.getSelectedServer());
-                                }
-                              : null,
-                          child: Text(locals.startUsingClipious)),
-                    )
-                  ])),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                            width: 150, height: 150, child: AppIcon()),
+                        Text(
+                          'Clipious',
+                          style: textTheme.displaySmall
+                              ?.copyWith(color: colors.primary),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(locals.wizardIntro),
+                        ),
+                        const Expanded(
+                            child: ManagerServersView(fromWizard: true)),
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: FilledButton.tonal(
+                              onPressed: server != null
+                                  ? () {
+                                      AutoRouter.of(context)
+                                          .replace(const MainRoute())
+                                          .then((value) =>
+                                              cubit.getSelectedServer());
+                                    }
+                                  : null,
+                              child: Text(locals.startUsingClipious)),
+                        )
+                      ])),
             );
           },
         ),

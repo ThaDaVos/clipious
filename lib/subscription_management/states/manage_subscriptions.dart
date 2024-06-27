@@ -1,13 +1,12 @@
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/extensions.dart';
 import 'package:logging/logging.dart';
-import 'package:pull_to_refresh/pull_to_refresh.dart';
 
 import '../../globals.dart';
 import '../models/subscription.dart';
 
-part 'manage_subscriptions.g.dart';
+part 'manage_subscriptions.freezed.dart';
 
 final logger = Logger('ManageSubscriptionController');
 
@@ -25,7 +24,8 @@ class ManageSubscriptionCubit extends Cubit<ManageSubscriptionsState> {
     bool isSubscribed = await service.isSubscribedToChannel(authorId);
 
     if (!success || isSubscribed) {
-      logger.fine('Issue setting subscription unsub request: $success  isSubscribed: $isSubscribed');
+      logger.fine(
+          'Issue setting subscription unsub request: $success  isSubscribed: $isSubscribed');
       return unsubscribe(authorId);
     }
 
@@ -33,25 +33,16 @@ class ManageSubscriptionCubit extends Cubit<ManageSubscriptionsState> {
   }
 
   refreshSubs() async {
-    var state = this.state.copyWith();
-    state.loading = true;
-    emit(state);
-    state = this.state.copyWith();
-    state.subs = (await service.getSubscriptions()).sortBy((e) => e.author).toList();
-    state.loading = false;
-    emit(state);
-    state.refreshController.refreshCompleted();
+    emit(state.copyWith(loading: true));
+    var subs =
+        (await service.getSubscriptions()).sortBy((e) => e.author).toList();
+    emit(state.copyWith(subs: subs, loading: false));
   }
 }
 
-@CopyWith()
-class ManageSubscriptionsState {
-  List<Subscription> subs;
-  bool loading;
-  RefreshController refreshController;
-
-  ManageSubscriptionsState({List<Subscription>? subs, bool? loading = true, RefreshController? refreshController})
-      : subs = subs ?? [],
-        loading = loading ?? true,
-        refreshController = refreshController ?? RefreshController(initialRefresh: false);
+@freezed
+class ManageSubscriptionsState with _$ManageSubscriptionsState {
+  const factory ManageSubscriptionsState(
+      {@Default([]) List<Subscription> subs,
+      @Default(true) bool loading}) = _ManageSubscriptionsState;
 }

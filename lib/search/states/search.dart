@@ -1,29 +1,29 @@
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
 import 'package:easy_debounce/easy_debounce.dart';
 import 'package:flutter/material.dart';
-import 'package:invidious/database.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/globals.dart';
-import 'package:invidious/main.dart';
-import 'package:invidious/search/models/search_results.dart';
+import 'package:invidious/search/models/db/search_history_item.dart';
 import 'package:invidious/search/models/search_sort_by.dart';
+import 'package:invidious/search/states/search_filter.dart';
 
 import '../../channels/models/channel.dart';
 import '../../playlists/models/playlist.dart';
 import '../../settings/states/settings.dart';
 import '../../videos/models/video_in_list.dart';
-import '../models/search_type.dart';
 
-part 'search.g.dart';
+part 'search.freezed.dart';
 
 class SearchCubit<T extends SearchState> extends Cubit<SearchState> {
   final SettingsCubit settings;
+
   SearchCubit(super.initialState, this.settings) {
     onInit();
   }
 
   void onInit() {
     state.queryController.addListener(getSuggestions);
+    getHistory();
     if (state.searchNow) {
       search(state.queryController.value.text);
     }
@@ -35,60 +35,58 @@ class SearchCubit<T extends SearchState> extends Cubit<SearchState> {
     super.close();
   }
 
+  void onFiltersChanged(SearchFiltersState newValue) {
+    emit(state.copyWith(filters: newValue));
+  }
+
   void sortChanged(SearchSortBy? value) {
-    var state = this.state.copyWith();
-    state.sortBy = value ?? state.sortBy;
-    emit(state);
+    emit(state.copyWith(sortBy: value ?? state.sortBy));
     search(state.queryController.value.text);
   }
 
-  void searchCleared() {
+  // returns true search is already cleared
+  bool searchCleared() {
     if (state.queryController.value.text.isEmpty) {
-      navigatorKey.currentState?.pop();
+      return true;
     } else {
-      var state = this.state.copyWith();
       state.queryController.clear();
-      state.showResults = false;
-      emit(state);
+      emit(state.copyWith(showResults: false));
+      return false;
     }
   }
 
-  void getSuggestions({bool hideResult = true}) {
-    var state = this.state.copyWith();
-    state.showResults = !hideResult;
-    emit(state);
-    EasyDebounce.debounce('search-suggestions', const Duration(milliseconds: 500), () async {
-      var state = this.state.copyWith();
-      state.suggestions = (await service.getSearchSuggestion(state.queryController.value.text)).suggestions;
-      emit(state);
-    });
+  clearSearch() {
+    emit(state.copyWith(showResults: false));
   }
 
-  List<String> getHistory() {
-    return settings.state.useSearchHistory ? db.getSearchHistory() : [];
+  void getSuggestions({bool hideResult = true}) {
+    emit(state.copyWith(showResults: !hideResult));
+    if (!settings.state.distractionFreeMode) {
+      EasyDebounce.debounce(
+          'search-suggestions', const Duration(milliseconds: 500), () async {
+        var suggestions = (await service
+                .getSearchSuggestion(state.queryController.value.text))
+            .suggestions;
+        emit(state.copyWith(suggestions: suggestions));
+      });
+    }
+  }
+
+  getHistory() {
+    emit(state.copyWith(
+        searchHistory:
+            settings.state.useSearchHistory ? db.getSearchHistory() : []));
   }
 
   search(String value) async {
-    var state = this.state.copyWith();
-    state.showResults = true;
-    state.loading = true;
-    state.videos = [];
-    state.channels = [];
-    state.playlists = [];
-    emit(state);
+    emit(state.copyWith(showResults: true));
 
-    state = state.copyWith();
-    List<SearchResults> results = await Future.wait([
-      service.search(state.queryController.value.text, type: SearchType.video, sortBy: state.sortBy),
-      service.search(state.queryController.value.text, type: SearchType.channel, sortBy: state.sortBy),
-      service.search(state.queryController.value.text, type: SearchType.playlist, sortBy: state.sortBy)
-    ]);
-
-    state.videos = results[0].videos;
-    state.channels = results[1].channels;
-    state.playlists = results[2].playlists;
-    state.loading = false;
-    emit(state);
+    final query = state.queryController.text;
+    if (query.isNotEmpty && settings.state.useSearchHistory) {
+      await db.addToSearchHistory(SearchHistoryItem(
+          query, (DateTime.now().millisecondsSinceEpoch / 1000).round()));
+    }
+    getHistory();
   }
 
   setSearchQuery(String e) {
@@ -96,43 +94,28 @@ class SearchCubit<T extends SearchState> extends Cubit<SearchState> {
     search(e);
   }
 
-  void selectIndex(int value) {
-    var state = this.state.copyWith();
-    state.selectedIndex = value;
-    emit(state);
+  removeFromHistory(String e) async {
+    await db.deleteFromSearchHistory(e);
+    getHistory();
   }
 }
 
-abstract class Clonable<T> {
-  T clone();
-}
+@freezed
+class SearchState with _$SearchState {
+  const factory SearchState(
+          {required TextEditingController queryController,
+          @Default(false) bool searchNow,
+          @Default([]) List<String> suggestions,
+          @Default(SearchSortBy.relevance) SearchSortBy sortBy,
+          @Default(false) bool showResults,
+          @Default(1) int videoPage,
+          @Default(1) int channelPage,
+          @Default(1) int playlistPage,
+          @Default([]) List<String> searchHistory,
+          @Default(SearchFiltersState()) SearchFiltersState filters}) =
+      _SearchState;
 
-@CopyWith(constructor: "inLine")
-class SearchState extends Clonable<SearchState> {
-  TextEditingController queryController;
-
-  int selectedIndex;
-
-  List<VideoInList> videos;
-
-  List<Channel> channels;
-
-  List<Playlist> playlists;
-
-
-  bool searchNow;
-
-  List<String> suggestions;
-
-  SearchSortBy sortBy;
-
-  bool showResults;
-
-  bool loading;
-
-  int videoPage, channelPage, playlistPage;
-
-  SearchState(
+  static SearchState init(
       {TextEditingController? queryController,
       int? selectedIndex,
       List<VideoInList>? videos,
@@ -147,26 +130,16 @@ class SearchState extends Clonable<SearchState> {
       int? videoPage,
       channelPage,
       playlistPage,
-      String? query})
-      : queryController = queryController ?? TextEditingController(text: query ?? ''),
-        selectedIndex = selectedIndex ?? 0,
-        channels = channels ?? [],
-        videos = videos ?? [],
-        playlists = playlists ?? [],
-        searchNow = searchNow ?? false,
-        suggestions = suggestions ?? [],
-        sortBy = sortBy ?? SearchSortBy.relevance,
-        showResults = showResults ?? false,
-        loading = loading ?? false,
-        videoPage = videoPage ?? 1,
-        channelPage = channelPage ?? 1,
-        playlistPage = playlistPage ?? 1;
-
-  SearchState.inLine(this.queryController, this.selectedIndex, this.videos, this.channels, this.playlists,  this.searchNow, this.suggestions, this.sortBy, this.showResults,
-      this.loading, this.videoPage, this.channelPage, this.playlistPage);
-
-  @override
-  SearchState clone() {
-    return copyWith();
+      String? query}) {
+    return SearchState(
+        queryController:
+            queryController ?? TextEditingController(text: query ?? ''),
+        searchNow: searchNow ?? false,
+        suggestions: suggestions ?? [],
+        sortBy: sortBy ?? SearchSortBy.relevance,
+        showResults: showResults ?? false,
+        videoPage: videoPage ?? 1,
+        channelPage: channelPage ?? 1,
+        playlistPage: playlistPage ?? 1);
   }
 }

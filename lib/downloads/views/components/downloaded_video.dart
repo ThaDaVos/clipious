@@ -12,7 +12,7 @@ import '../../../videos/views/components/compact_video.dart';
 class DownloadedVideoView extends StatelessWidget {
   final DownloadedVideo video;
 
-  const DownloadedVideoView({Key? key, required this.video}) : super(key: key);
+  const DownloadedVideoView({super.key, required this.video});
 
   @override
   Widget build(BuildContext context) {
@@ -23,35 +23,51 @@ class DownloadedVideoView extends StatelessWidget {
     var downloadManager = context.read<DownloadManagerCubit>();
     var player = context.read<PlayerCubit>();
     return BlocProvider(
-      create: (BuildContext context) => DownloadedVideoCubit(downloadManager, DownloadedVideoState(video.id), player),
-      child: BlocBuilder<DownloadedVideoCubit, DownloadedVideoState>(builder: (context, _) {
-        bool downloadFailed = _.video?.downloadFailed ?? false;
+      create: (BuildContext context) => DownloadedVideoCubit(
+          downloadManager, DownloadedVideoState.init(video.videoId), player),
+      child: BlocBuilder<DownloadedVideoCubit, DownloadedVideoState>(
+          builder: (context, state) {
+        bool downloadFailed = state.video?.downloadFailed ?? false;
         var cubit = context.read<DownloadedVideoCubit>();
 
-        return _.video != null
+        return state.video != null
             ? Stack(
                 children: [
                   AnimatedOpacity(
                     opacity: (downloadFailed) ? 0.5 : 1,
                     duration: animationDuration,
                     child: CompactVideo(
-                      offlineVideo: _.video,
-                      onTap: downloadFailed ? cubit.retryDownload : cubit.playVideo,
+                      offlineVideo: state.video,
+                      onTap: downloadFailed
+                          ? cubit.retryDownload
+                          : cubit.playVideo,
                       trailing: [
-                        (_.video?.audioOnly ?? false)
+                        (state.video?.audioOnly ?? false)
                             ? Icon(
                                 Icons.audiotrack,
                                 color: colors.secondary,
                               )
                             : const SizedBox.shrink(),
-                        (_.video?.downloadComplete ?? false) || downloadFailed
+                        (state.video?.downloadComplete ?? false) ||
+                                downloadFailed
                             ? const SizedBox.shrink()
-                            : SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  value: _.progress == 0 ? null : _.progress,
+                            : Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: TweenAnimationBuilder(
+                                      duration: animationDuration,
+                                      tween: Tween<double>(
+                                          begin: 0, end: state.progress),
+                                      builder: (context, value, child) {
+                                        return CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          value: state.progress == 0
+                                              ? null
+                                              : value,
+                                        );
+                                      }),
                                 ),
                               )
                       ],
@@ -62,7 +78,9 @@ class DownloadedVideoView extends StatelessWidget {
                           right: 10,
                           bottom: 5,
                           child: Container(
-                            decoration: BoxDecoration(color: colors.secondaryContainer, borderRadius: BorderRadius.circular(20)),
+                            decoration: BoxDecoration(
+                                color: colors.secondaryContainer,
+                                borderRadius: BorderRadius.circular(20)),
                             child: Padding(
                               padding: const EdgeInsets.all(4),
                               child: Row(

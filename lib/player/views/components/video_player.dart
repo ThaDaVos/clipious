@@ -1,10 +1,9 @@
-import 'package:better_player/better_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:invidious/downloads/models/downloaded_video.dart';
 import 'package:invidious/player/states/video_player.dart';
 import 'package:invidious/settings/states/settings.dart';
+import 'package:river_player/river_player.dart';
 
 import '../../../videos/models/video.dart';
 import '../../states/player.dart';
@@ -17,8 +16,16 @@ class VideoPlayer extends StatefulWidget {
   final bool? disableControls;
   final Duration? startAt;
 
-  const VideoPlayer({super.key, this.video, required this.miniPlayer, this.playNow, this.disableControls, this.offlineVideo, this.startAt})
-      : assert(video == null || offlineVideo == null, 'cannot provide both video and offline video\n');
+  const VideoPlayer(
+      {super.key,
+      this.video,
+      required this.miniPlayer,
+      this.playNow,
+      this.disableControls,
+      this.offlineVideo,
+      this.startAt})
+      : assert(video == null || offlineVideo == null,
+            'cannot provide both video and offline video\n');
 
   @override
   State<VideoPlayer> createState() => _VideoPlayerState();
@@ -30,8 +37,8 @@ class _VideoPlayerState extends State<VideoPlayer> {
   @override
   Widget build(BuildContext context) {
     ColorScheme colorScheme = Theme.of(context).colorScheme;
-    AppLocalizations locals = AppLocalizations.of(context)!;
-    Color overFlowTextColor = Theme.of(context).textTheme.bodyMedium?.color ?? Colors.black;
+    Color overFlowTextColor =
+        Theme.of(context).textTheme.bodyMedium?.color ?? Colors.black;
 
     var player = context.read<PlayerCubit>();
     var settings = context.read<SettingsCubit>();
@@ -46,20 +53,26 @@ class _VideoPlayerState extends State<VideoPlayer> {
               video: widget.video,
               offlineVideo: widget.offlineVideo,
               disableControls: widget.disableControls),
-          player, settings),
+          player,
+          settings),
       child: BlocBuilder<VideoPlayerCubit, VideoPlayerState>(
-        builder: (context, _) => BlocListener<PlayerCubit, PlayerState>(
-          listenWhen: (previous, current) => previous.mediaCommand != current.mediaCommand && current.mediaCommand != null,
-          listener: (context, state) => context.read<VideoPlayerCubit>().handleCommand(state.mediaCommand!),
-          child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: _.videoController == null
-                  ? const SizedBox.shrink()
-                  : BetterPlayer(
-                      controller: _.videoController!,
-                      key: _betterPlayerKey,
-                    )),
-        ),
+        builder: (context, playerState) {
+          var cubit = context.read<VideoPlayerCubit>();
+          return BlocListener<PlayerCubit, PlayerState>(
+            listenWhen: (previous, current) =>
+                previous.mediaCommand != current.mediaCommand &&
+                current.mediaCommand != null,
+            listener: (context, state) => context
+                .read<VideoPlayerCubit>()
+                .handleCommand(state.mediaCommand!),
+            child: cubit.videoController == null
+                ? const SizedBox.shrink()
+                : BetterPlayer(
+                    controller: cubit.videoController!,
+                    key: _betterPlayerKey,
+                  ),
+          );
+        },
       ),
     );
   }

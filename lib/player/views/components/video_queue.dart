@@ -10,12 +10,12 @@ import 'package:invidious/videos/views/components/compact_video.dart';
 import '../../../globals.dart';
 
 class VideoQueue extends StatelessWidget {
-  const VideoQueue({Key? key}) : super(key: key);
+  const VideoQueue({super.key});
 
   Widget onlineVideoQueue(BuildContext context, int index, BaseVideo video) {
     var controller = context.read<PlayerCubit>();
     var state = controller.state;
-    bool isPlaying = index == state.currentIndex;
+    bool isPlaying = video.videoId == state.currentlyPlaying?.videoId;
     return SwipeActionCell(
       key: ValueKey('$index-${video.videoId}'),
       trailingActions: isPlaying
@@ -34,7 +34,7 @@ class VideoQueue extends StatelessWidget {
                   ))
             ],
       child: CompactVideo(
-        onTap: isPlaying ? () {} : () => controller.switchToVideo(video),
+        onTap: isPlaying ? () {} : () => controller.skipToVideo(index),
         video: video,
         highlighted: isPlaying,
       ),
@@ -45,10 +45,10 @@ class VideoQueue extends StatelessWidget {
     var colors = Theme.of(context).colorScheme;
     var controller = context.read<PlayerCubit>();
     var state = controller.state;
-    bool isPlaying = state.currentIndex == index;
+    bool isPlaying = state.offlineCurrentlyPlaying?.videoId == v.videoId;
 
     return SwipeActionCell(
-      key: ValueKey('$index-${v.id}'),
+      key: ValueKey('$index-${v.videoId}'),
       trailingActions: isPlaying
           ? []
           : [
@@ -65,7 +65,7 @@ class VideoQueue extends StatelessWidget {
                   ))
             ],
       child: CompactVideo(
-        onTap: isPlaying ? () {} : () => controller.switchToOfflineVideo(v),
+        onTap: isPlaying ? () {} : () => controller.skipToVideo(index),
         offlineVideo: v,
         highlighted: isPlaying,
         trailing: [
@@ -82,41 +82,66 @@ class VideoQueue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ColorScheme colors = Theme.of(context).colorScheme;
     var controller = context.read<PlayerCubit>();
     var state = controller.state;
     return state.videos.isNotEmpty || state.offlineVideos.isNotEmpty
         ? BlocProvider(
-            create: (BuildContext context) => VideoQueueCubit(ScrollController()),
-            child: BlocBuilder<VideoQueueCubit, ScrollController>(builder: (context, scrollController) {
+            create: (BuildContext context) =>
+                VideoQueueCubit(ScrollController()),
+            child: BlocBuilder<VideoQueueCubit, ScrollController>(
+                builder: (context, scrollController) {
               return BlocConsumer<PlayerCubit, PlayerState>(
-                listenWhen: (previous, current) => previous.currentIndex != current.currentIndex,
+                listenWhen: (previous, current) =>
+                    (previous.currentlyPlaying?.videoId ??
+                        previous.offlineCurrentlyPlaying?.videoId) !=
+                    (current.currentlyPlaying?.videoId ??
+                        current.offlineCurrentlyPlaying?.videoId),
                 listener: (context, state) {
-                  final offset = (state.currentIndex - 1) * compactVideoHeight;
+                  List<IdedVideo> videos = (state.videos.isNotEmpty
+                      ? state.videos
+                      : state.offlineVideos);
+
+                  final offset = ((videos.indexWhere((element) =>
+                              element.videoId ==
+                              (state.currentlyPlaying?.videoId ??
+                                  state.offlineCurrentlyPlaying?.videoId))) -
+                          1) *
+                      (compactVideoHeight + innerHorizontalPadding);
                   bool goingDown = offset > scrollController.offset;
 
                   // if we want to go up and we're already at the top we don't do anything
                   if ((!goingDown && scrollController.offset == 0)
                       // if we want to go down and we're already at the bottom we don't do anything
                       ||
-                      (goingDown && scrollController.offset == scrollController.position.maxScrollExtent)) {
+                      (goingDown &&
+                          scrollController.offset ==
+                              scrollController.position.maxScrollExtent)) {
                     return;
                   }
-                  scrollController.animateTo(offset, duration: animationDuration * 4, curve: Curves.easeInOutQuad);
+                  scrollController.animateTo(offset,
+                      duration: animationDuration * 4,
+                      curve: Curves.easeInOutQuad);
                 },
                 buildWhen: (previous, current) =>
                     previous.videos != current.videos ||
                     previous.videos.length != current.videos.length ||
                     previous.offlineVideos != current.offlineVideos ||
-                    previous.offlineVideos.length != current.offlineVideos.length ||
-                    previous.currentIndex != current.currentIndex ||
+                    previous.offlineVideos.length !=
+                        current.offlineVideos.length ||
+                    // previous.currentIndex != current.currentIndex ||
                     previous.currentlyPlaying != current.currentlyPlaying ||
-                    previous.offlineCurrentlyPlaying != current.offlineCurrentlyPlaying,
+                    previous.offlineCurrentlyPlaying !=
+                        current.offlineCurrentlyPlaying,
                 builder: (context, state) => ReorderableListView.builder(
                     scrollController: scrollController,
-                    itemCount: state.videos.isNotEmpty ? state.videos.length : state.offlineVideos.length,
+                    itemCount: state.videos.isNotEmpty
+                        ? state.videos.length
+                        : state.offlineVideos.length,
                     onReorder: controller.onQueueReorder,
-                    itemBuilder: (context, index) => state.videos.isNotEmpty ? onlineVideoQueue(context, index, state.videos[index]) : offlineVideoQueue(context, index, state.offlineVideos[index])),
+                    itemBuilder: (context, index) => state.videos.isNotEmpty
+                        ? onlineVideoQueue(context, index, state.videos[index])
+                        : offlineVideoQueue(
+                            context, index, state.offlineVideos[index])),
               );
             }),
           )

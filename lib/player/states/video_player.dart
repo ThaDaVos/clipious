@@ -1,36 +1,35 @@
-import 'package:back_button_interceptor/back_button_interceptor.dart';
-import 'package:better_player/better_player.dart';
-import 'package:better_player/src/video_player/video_player_platform_interface.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
+import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/downloads/models/downloaded_video.dart';
 import 'package:invidious/extensions.dart';
-import 'package:invidious/player/models/mediaEvent.dart';
-import 'package:invidious/player/views/tv/components/player_controls.dart';
+import 'package:invidious/player/models/media_event.dart';
 import 'package:invidious/settings/states/settings.dart';
 import 'package:invidious/videos/models/base_video.dart';
 import 'package:logging/logging.dart';
-import 'package:pretty_bytes/pretty_bytes.dart';
-import 'package:simple_pip_mode/simple_pip.dart';
-import 'package:wakelock/wakelock.dart';
+import 'package:river_player/river_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../globals.dart';
 import '../../main.dart';
+import '../../utils/pretty_bytes.dart';
 import '../../videos/models/video.dart';
 import '../views/components/player_controls.dart';
+import '../views/tv/components/player_controls.dart';
 import 'interfaces/media_player.dart';
-import 'player.dart';
 
-part 'video_player.g.dart';
+part 'video_player.freezed.dart';
 
 final log = Logger('VideoPlayer');
 
+final _googleCdnRegex = RegExp(r'https://(.+)googlevideo.com/');
+
 class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
-  final PlayerCubit player;
+  BetterPlayerController? videoController;
   final SettingsCubit settings;
 
-  VideoPlayerCubit(super.initialState, this.player, this.settings) {
+  VideoPlayerCubit(super.initialState, super.player, this.settings) {
     onInit();
   }
 
@@ -47,13 +46,13 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
   @override
   disposeControllers() {
-    Wakelock.disable();
+    WakelockPlus.disable();
     log.fine("Disposing video controller");
     var state = this.state.copyWith();
-    state.videoController?.exitFullScreen();
-    state.videoController?.removeEventsListener(onVideoListener);
-    state.videoController?.dispose();
-    state.videoController = null;
+    videoController?.exitFullScreen();
+    videoController?.removeEventsListener(onVideoListener);
+    videoController?.dispose();
+    videoController = null;
     if (!isClosed) {
       emit(state);
     }
@@ -71,16 +70,27 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
         type = MediaEventType.pause;
         break;
       case BetterPlayerEventType.setVolume:
-        type = MediaEventType.volumeChanged;
         break;
       case BetterPlayerEventType.play:
         type = MediaEventType.play;
         break;
 
       case BetterPlayerEventType.progress:
+        EasyThrottle.throttle(
+            'video-player-progress', const Duration(seconds: 1), () {
+          player.setEvent(MediaEvent(
+              state: MediaState.playing,
+              type: MediaEventType.progress,
+              value: videoController?.videoPlayerController?.value.position ??
+                  Duration.zero));
+        });
       case BetterPlayerEventType.seekTo:
         // we bypass the rest so we can send the current progress
-        player.setEvent(MediaEvent(state: MediaState.playing, type: MediaEventType.progress, value: state.videoController?.videoPlayerController?.value.position ?? Duration.zero));
+        player.setEvent(MediaEvent(
+            state: MediaState.playing,
+            type: MediaEventType.progress,
+            value: videoController?.videoPlayerController?.value.position ??
+                Duration.zero));
         return;
       case BetterPlayerEventType.bufferingEnd:
         mediaState = MediaState.playing;
@@ -95,19 +105,15 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
       case BetterPlayerEventType.setupDataSource:
         mediaState = MediaState.loading;
         break;
-      case BetterPlayerEventType.pipStop:
-        mediaState = MediaState.exitedPip;
-        break;
-      case BetterPlayerEventType.pipStart:
-        mediaState = MediaState.enteredPip;
-        break;
-      case BetterPlayerEventType.overflowOpened:
-        break;
-      case BetterPlayerEventType.overflowClosed:
+      case BetterPlayerEventType.controlsVisible:
         break;
       case BetterPlayerEventType.openFullscreen:
         break;
       case BetterPlayerEventType.initialized:
+        player.setEvent(MediaEvent<double>(
+            state: MediaState.ready,
+            type: MediaEventType.aspectRatioChanged,
+            value: getAspectRatio()));
         mediaState = MediaState.ready;
         break;
       case BetterPlayerEventType.hideFullscreen:
@@ -117,8 +123,6 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
         break;
       case BetterPlayerEventType.exception:
         mediaState = MediaState.error;
-        break;
-      case BetterPlayerEventType.controlsVisible:
         break;
       case BetterPlayerEventType.controlsHiddenStart:
         break;
@@ -142,18 +146,28 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.bufferingUpdate:
-        List<DurationRange> durations = event.parameters?['buffered'] ?? [];
-        state.bufferPosition = durations.sortBy((e) => e.end).map((e) => e.end).last;
+        EasyThrottle.throttle('video-buffering', const Duration(seconds: 1),
+            () {
+          List<DurationRange> durations = event.parameters?['buffered'] ?? [];
+          emit(state.copyWith(
+              bufferPosition:
+                  durations.sortBy((e) => e.end).map((e) => e.end).last));
+          player.setEvent(MediaEvent(
+              state: MediaState.playing,
+              type: MediaEventType.bufferChanged,
+              value: state.bufferPosition));
+        });
         break;
       case BetterPlayerEventType.play:
         double speed = 1.0;
         if (settings.state.rememberPlayBackSpeed) {
           log.fine("Setting playback speed to $speed");
-          state.videoController?.setSpeed(settings.state.lastSpeed);
+          videoController?.setSpeed(settings.state.lastSpeed);
         }
         break;
       case BetterPlayerEventType.changedSubtitles:
-        settings.setLastSubtitle(state.videoController?.betterPlayerSubtitlesSource?.name ?? '');
+        settings.setLastSubtitle(
+            videoController?.betterPlayerSubtitlesSource?.name ?? '');
         break;
       case BetterPlayerEventType.setSpeed:
         if (event.parameters?.containsKey("speed") ?? false) {
@@ -166,16 +180,16 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
   }
 
   @override
-  toggleDash() {
+  toggleDash() async {
     log.fine('toggle dash');
     var state = this.state.copyWith();
     // saving progress before we reload new video format
     // saveProgress(videoController?.videoPlayerController?.value.position.inSeconds ?? 0);
-    player.saveProgress(position().inSeconds);
+    await player.saveProgress(position().inSeconds);
 
     // disposeControllers();
 
-    settings.toggleDash(!isUsingDash());
+    await settings.toggleDash(!isUsingDash());
 
     emit(state);
     playVideo(false);
@@ -183,42 +197,48 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
   @override
   switchVideo(Video video, {Duration? startAt}) {
-    // state.videoController?.exitFullScreen();
-    state.startAt = startAt;
-    // disposeControllers();
-    state.video = video;
+    emit(state.copyWith(startAt: startAt, video: video));
     playVideo(false, startAt: startAt);
   }
 
   @override
   togglePlaying() {
-    if (state.videoController != null) {
-      (state.videoController?.isPlaying() ?? false) ? state.videoController?.pause() : state.videoController?.play();
+    if (videoController != null) {
+      (videoController?.isPlaying() ?? false)
+          ? videoController?.pause()
+          : videoController?.play();
       emit(state.copyWith());
     }
   }
 
   @override
   toggleControls(bool visible) {
-    state.videoController?.setControlsEnabled(visible);
+    videoController?.setControlsEnabled(visible);
   }
 
   @override
   playVideo(bool offline, {Duration? startAt}) async {
-    var state = this.state.copyWith();
+    if (player.state.isAudio) {
+      return;
+    }
+    var newState = state.copyWith();
     // only used if the player is currently close because it is onReady that will actually play the video
     // need better way of handling this
-    state.startAt = startAt;
-    if (state.video != null || state.offlineVideo != null) {
-      IdedVideo idedVideo = offline ? state.offlineVideo! : state.video!;
-      // state.videoController?.dispose();
-      // state.videoController = null;
-      state.bufferPosition = Duration.zero;
+    newState = newState.copyWith(startAt: startAt);
+    if (newState.video != null || newState.offlineVideo != null) {
+      IdedVideo idedVideo = offline ? newState.offlineVideo! : newState.video!;
+      // videoController?.dispose();
+      // videoController = null;
+      newState = newState.copyWith(bufferPosition: Duration.zero);
 
       if (startAt == null && !offline) {
         double progress = db.getVideoProgress(idedVideo.videoId);
         if (progress > 0 && progress < 0.90) {
-          startAt = Duration(seconds: (offline ? state.offlineVideo!.lengthSeconds : state.video!.lengthSeconds * progress).floor());
+          startAt = Duration(
+              seconds: (offline
+                      ? newState.offlineVideo!.lengthSeconds
+                      : newState.video!.lengthSeconds * progress)
+                  .floor());
         }
       }
 
@@ -226,7 +246,7 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
       // getting data sources
       if (offline) {
-        String videoPath = await state.offlineVideo!.mediaPath;
+        String videoPath = await newState.offlineVideo!.mediaPath;
 
         betterPlayerDataSource = BetterPlayerDataSource(
           BetterPlayerDataSourceType.file,
@@ -235,23 +255,35 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
           liveStream: false,
         );
       } else {
-        String baseUrl = db.getCurrentlySelectedServer().url;
+        String baseUrl = (await db.getCurrentlySelectedServer()).url;
 
         Map<String, String> resolutions = {};
 
-        bool isHls = state.video!.hlsUrl != null;
+        bool isHls = newState.video!.hlsUrl != null;
 
-        var formatStream = isHls ? null : state.video!.formatStreams[state.video!.formatStreams.length - 1];
+        var formatStream = isHls
+            ? null
+            : newState
+                .video!.formatStreams[newState.video!.formatStreams.length - 1];
         String videoUrl = isHls
-            ? '${state.video!.hlsUrl!}${service.useProxy() ? '?local=true' : ''}'
+            ? '${newState.video!.hlsUrl!}${service.useProxy() ? '?local=true' : ''}'
             : isUsingDash()
-                ? '${state.video!.dashUrl}${service.useProxy() ? '?local=true' : ''}'
+                ? '${newState.video!.dashUrl}${service.useProxy() ? '?local=true' : ''}'
                 : formatStream?.url ?? '';
         if (!isUsingDash() && formatStream != null) {
-          state.selectedNonDashTrack = formatStream.resolution;
+          newState =
+              newState.copyWith(selectedNonDashTrack: formatStream.resolution);
         }
 
-        log.info('Playing url (dash ${isUsingDash()},  hasHls ? ${state.video!.hlsUrl != null})  $videoUrl');
+        // somehow invidious is sending google url even when using local proxy when not using dash
+        if (!isUsingDash() && service.useProxy()) {
+          // we replace google's cdn by invidious server url.
+          videoUrl = videoUrl.replaceFirst(_googleCdnRegex,
+              '${(await db.getCurrentlySelectedServer()).url}/');
+        }
+
+        log.info(
+            'Playing url (dash ${isUsingDash()},  hasHls ? ${newState.video!.hlsUrl != null})  $videoUrl');
 
         BetterPlayerVideoFormat format = isHls
             ? BetterPlayerVideoFormat.hls
@@ -260,7 +292,7 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
                 : BetterPlayerVideoFormat.other;
 
         if (format == BetterPlayerVideoFormat.other) {
-          for (var value in state.video!.formatStreams) {
+          for (var value in newState.video!.formatStreams) {
             resolutions[value.qualityLabel] = value.url;
           }
         }
@@ -274,83 +306,104 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
           BetterPlayerDataSourceType.network,
           videoUrl,
           videoFormat: format,
-          liveStream: state.video!.liveNow,
-          subtitles: state.video!.captions
-              .map((s) => BetterPlayerSubtitlesSource(type: BetterPlayerSubtitlesSourceType.network, urls: ['${baseUrl}${s.url}'], name: s.label, selectedByDefault: s.label == lastSubtitle))
+          liveStream: newState.video!.liveNow,
+          subtitles: newState.video!.captions
+              .map((s) => BetterPlayerSubtitlesSource(
+                  type: BetterPlayerSubtitlesSourceType.network,
+                  urls: ['$baseUrl${s.url}'],
+                  name: s.label,
+                  selectedByDefault: s.label == lastSubtitle))
               .toList(),
           resolutions: resolutions.isNotEmpty ? resolutions : null,
         );
       }
 
-      Wakelock.enable();
+      WakelockPlus.enable();
 
-      bool lockOrientation = settings.state.forceLandscapeFullScreen;
       bool fillVideo = settings.state.fillFullscreen;
 
-      if (state.videoController == null) {
-        state.videoController = BetterPlayerController(
+      if (videoController == null) {
+        videoController = BetterPlayerController(
             BetterPlayerConfiguration(
-                overlay: isTv ? const TvPlayerControls() : PlayerControls(mediaPlayerCubit: this),
-                deviceOrientationsOnFullScreen: [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight, DeviceOrientation.portraitDown, DeviceOrientation.portraitUp],
-                deviceOrientationsAfterFullScreen: [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight, DeviceOrientation.portraitDown, DeviceOrientation.portraitUp],
+                overlay: isTv
+                    ? const TvPlayerControls()
+                    : PlayerControls(mediaPlayerCubit: this),
+                deviceOrientationsOnFullScreen: [
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight,
+                  DeviceOrientation.portraitDown,
+                  DeviceOrientation.portraitUp
+                ],
+                deviceOrientationsAfterFullScreen: [
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight,
+                  DeviceOrientation.portraitDown,
+                  DeviceOrientation.portraitUp
+                ],
                 handleLifecycle: false,
-                autoDetectFullscreenDeviceOrientation: lockOrientation,
-                autoDetectFullscreenAspectRatio: true,
                 startAt: startAt,
                 autoPlay: true,
                 allowedScreenSleep: false,
                 fit: fillVideo ? BoxFit.cover : BoxFit.contain,
                 subtitlesConfiguration: BetterPlayerSubtitlesConfiguration(
-                  fontSize: settings.state.subtitleSize,
-                ),
+                    backgroundColor: settings.state.subtitlesBackground
+                        ? Colors.black.withOpacity(0.8)
+                        : Colors.transparent,
+                    fontSize: settings.state.subtitleSize,
+                    outlineEnabled: true,
+                    outlineColor: Colors.black,
+                    outlineSize: 1),
                 controlsConfiguration: const BetterPlayerControlsConfiguration(
-                  showControls: false,
-                  // customControlsBuilder: (controller, onPlayerVisibilityChanged) => const PlayerControls(),
-                  // enablePlayPause: false,
-                  // overflowModalColor: colors.background,
-                  // overflowModalTextColor: overFlowTextColor,
-                  // overflowMenuIconsColor: overFlowTextColor,
-                  // overflowMenuCustomItems: [BetterPlayerOverflowMenuItem(useDash ? Icons.check_box_outlined : Icons.check_box_outline_blank, locals.useDash, toggleDash)])
-                )),
+                    showControls: false
+                    // customControlsBuilder: (controller, onPlayerVisibilityChanged) => PlayerControls(mediaPlayerCubit: this),
+                    // customControlsBuilder: (controller, onPlayerVisibilityChanged) => const PlayerControls(),
+                    // enablePlayPause: false,
+                    // overflowModalColor: colors.surface,
+                    // overflowModalTextColor: overFlowTextColor,
+                    // overflowMenuIconsColor: overFlowTextColor,
+                    // overflowMenuCustomItems: [BetterPlayerOverflowMenuItem(useDash ? Icons.check_box_outlined : Icons.check_box_outline_blank, locals.useDash, toggleDash)])
+                    )),
             betterPlayerDataSource: betterPlayerDataSource);
-        state.videoController!.addEventsListener(onVideoListener);
-        state.videoController!.setBetterPlayerGlobalKey(state.key);
+        videoController!.addEventsListener(onVideoListener);
+        videoController!.setBetterPlayerGlobalKey(newState.key);
         // isPipSupported = await videoController?.isPictureInPictureSupported() ?? false;
       } else {
-        await state.videoController?.setupDataSource(betterPlayerDataSource);
+        await videoController?.setupDataSource(betterPlayerDataSource);
         seek(startAt ?? Duration.zero);
       }
 
-      emit(state);
+      emit(newState);
     }
+
+    super.playVideo(offline);
   }
 
   @override
   void switchToOfflineVideo(DownloadedVideo v) {
-    // state.videoController?.exitFullScreen();
+    // videoController?.exitFullScreen();
     // disposeControllers();
-    state.offlineVideo = v;
+    emit(state.copyWith(offlineVideo: v));
     playVideo(true);
   }
 
   @override
   bool isPlaying() {
-    return state.videoController?.isPlaying() ?? false;
+    return videoController?.isPlaying() ?? false;
   }
 
   @override
   void pause() {
-    state.videoController?.pause();
+    videoController?.pause();
   }
 
   @override
   void play() {
-    state.videoController?.play();
+    videoController?.play();
   }
 
   @override
   void seek(Duration position) {
-    state.videoController?.seekTo(position);
+    videoController?.seekTo(position);
   }
 
   @override
@@ -360,33 +413,13 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
   @override
   Duration position() {
-    return state.videoController?.videoPlayerController?.value.position ?? Duration.zero;
+    return videoController?.videoPlayerController?.value.position ??
+        Duration.zero;
   }
 
   @override
   double? speed() {
-    return state.videoController?.videoPlayerController?.value.speed ?? 1;
-  }
-
-  @override
-  FullScreenState isFullScreen() {
-    return (state.videoController?.isFullScreen ?? false) ? FullScreenState.fullScreen : FullScreenState.notFullScreen;
-  }
-
-  @override
-  setFullScreen(bool fullScreen) {
-    if (fullScreen) {
-      state.videoController?.enterFullScreen();
-      BackButtonInterceptor.add(backButtonInterceptor, zIndex: 10, name: 'full screen player');
-    } else {
-      state.videoController?.exitFullScreen();
-      BackButtonInterceptor.remove(backButtonInterceptor);
-    }
-  }
-
-  bool backButtonInterceptor(bool stopDefaultButtonEvent, RouteInfo info) {
-    setFullScreen(false);
-    return true;
+    return videoController?.videoPlayerController?.value.speed ?? 1;
   }
 
   String _videoTrackToString(BetterPlayerAsmsTrack? track) {
@@ -404,10 +437,14 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
   @override
   List<String> getVideoTracks() {
     if (state.video != null) {
-      if (state.videoController?.betterPlayerAsmsTracks.isNotEmpty ?? false) {
-        return state.videoController?.betterPlayerAsmsTracks.map(_videoTrackToString).toList() ?? [];
+      if (videoController?.betterPlayerAsmsTracks.isNotEmpty ?? false) {
+        return videoController?.betterPlayerAsmsTracks
+                .map(_videoTrackToString)
+                .toList() ??
+            [];
       } else {
-        return state.video?.formatStreams.map((e) => e.resolution).toList() ?? [];
+        return state.video?.formatStreams.map((e) => e.resolution).toList() ??
+            [];
       }
     }
     // for offline video we don't offer video track selection
@@ -419,7 +456,7 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
     if (state.video != null) {
       if (isUsingDash()) {
         var tracks = getVideoTracks();
-        var track = _videoTrackToString(state.videoController?.betterPlayerAsmsTrack);
+        var track = _videoTrackToString(videoController?.betterPlayerAsmsTrack);
         log.fine("Current track: $track");
         return tracks.indexOf(track);
       } else {
@@ -435,8 +472,11 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
   @override
   List<String> getAudioTracks() {
     if (state.video != null) {
-      if (state.videoController?.betterPlayerAsmsAudioTracks?.isNotEmpty ?? false) {
-        return state.videoController?.betterPlayerAsmsAudioTracks?.map(_audioTrackToString).toList() ?? [];
+      if (videoController?.betterPlayerAsmsAudioTracks?.isNotEmpty ?? false) {
+        return videoController?.betterPlayerAsmsAudioTracks
+                ?.map(_audioTrackToString)
+                .toList() ??
+            [];
       }
     }
     // for offline video we don't offer video track selection
@@ -448,7 +488,8 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
     if (state.video != null) {
       if (settings.state.useDash) {
         var tracks = getAudioTracks();
-        var track = _audioTrackToString(state.videoController?.betterPlayerAsmsAudioTrack);
+        var track =
+            _audioTrackToString(videoController?.betterPlayerAsmsAudioTrack);
         log.fine("Current audio track: $track");
         return tracks.indexOf(track);
       }
@@ -459,78 +500,76 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
   @override
   List<String> getSubtitles() {
-    return state.video != null ? state.videoController?.betterPlayerSubtitlesSourceList.map(_subtitleToString).toList() ?? [] : [];
+    return state.video != null
+        ? videoController?.betterPlayerSubtitlesSourceList
+                .map(_subtitleToString)
+                .toList() ??
+            []
+        : [];
   }
 
   @override
   int selectedSubtitle() {
     var tracks = getSubtitles();
-    var track = _subtitleToString(state.videoController?.betterPlayerSubtitlesSource);
+    var track = _subtitleToString(videoController?.betterPlayerSubtitlesSource);
     log.fine("Current subtitle track: $track");
     return tracks.indexOf(track);
   }
 
   @override
   selectAudioTrack(int index) {
-    var betterPlayerAsmsTrack = state.videoController?.betterPlayerAsmsAudioTracks?[index];
+    var betterPlayerAsmsTrack =
+        videoController?.betterPlayerAsmsAudioTracks?[index];
     log.fine("Selected audio track, ${betterPlayerAsmsTrack?.label}");
     if (betterPlayerAsmsTrack != null) {
-      state.videoController?.setAudioTrack(betterPlayerAsmsTrack);
+      videoController?.setAudioTrack(betterPlayerAsmsTrack);
     }
   }
 
   @override
   selectSubtitle(int index) {
-    var sub = state.videoController?.betterPlayerSubtitlesSourceList[index];
+    var sub = videoController?.betterPlayerSubtitlesSourceList[index];
     if (sub != null) {
-      state.videoController?.setupSubtitleSource(sub, sourceInitialize: true);
+      videoController?.setupSubtitleSource(sub, sourceInitialize: true);
     }
   }
 
   @override
   selectVideoTrack(int index) {
-    var betterPlayerAsmsTrack = state.videoController?.betterPlayerAsmsTracks[index];
-    if (betterPlayerAsmsTrack != null) {
-      state.videoController?.setTrack(betterPlayerAsmsTrack);
+    if (isUsingDash()) {
+      var betterPlayerAsmsTrack =
+          videoController?.betterPlayerAsmsTracks[index];
+      if (betterPlayerAsmsTrack != null) {
+        videoController?.setTrack(betterPlayerAsmsTrack);
+      }
+    } else {
+      var track = getVideoTracks()[index];
+      var url = videoController?.betterPlayerDataSource?.resolutions?[track];
+      if (url != null) {
+        videoController?.setResolution(url);
+        emit(state.copyWith(selectedNonDashTrack: track));
+      }
     }
   }
 
   @override
-  bool supportsPip() {
-    return true;
-  }
-
-  @override
-  void enterPip() {
-    player.setEvent(MediaEvent(state: MediaState.enteredPip));
-    setFullScreen(true);
-    SimplePip(
-      onPipExited: () {
-        player.setEvent(MediaEvent(state: MediaState.exitedPip));
-        setFullScreen(false);
-      },
-    ).enterPipMode();
-    // state.videoController?.enablePictureInPicture(state.key);
-  }
-
-  @override
   bool isMuted() {
-    return state.videoController?.videoPlayerController?.value.volume == 0;
+    return videoController?.videoPlayerController?.value.volume == 0;
   }
 
   @override
   void toggleVolume(bool soundOn) {
-    state.videoController?.setVolume(soundOn ? 1 : 0);
+    videoController?.setVolume(soundOn ? 1 : 0);
   }
 
   @override
   void setSpeed(double d) {
-    state.videoController?.setSpeed(d);
+    videoController?.setSpeed(d);
   }
 
   @override
   double getSpeed() {
-    return state.videoController?.videoPlayerController?.value.speed ?? 1;
+    return videoController?.videoPlayerController?.value.speed ?? 1;
   }
 
   @override
@@ -545,24 +584,43 @@ class VideoPlayerCubit extends MediaPlayerCubit<VideoPlayerState> {
 
   @override
   Duration duration() {
-    return state.videoController?.videoPlayerController?.value.duration ?? const Duration(milliseconds: 1);
+    return videoController?.videoPlayerController?.value.duration ??
+        const Duration(milliseconds: 1);
+  }
+
+  @override
+  double getAspectRatio() {
+    double width =
+        videoController?.videoPlayerController?.value.size?.width ?? 16;
+    double height =
+        videoController?.videoPlayerController?.value.size?.height ?? 9;
+    return width / height;
+  }
+
+  @override
+  void onEnterFullScreen() {
+    videoController?.setOverriddenAspectRatio(getAspectRatio());
+  }
+
+  @override
+  void onExitFullScreen() {
+    videoController?.setOverriddenAspectRatio(16 / 9);
   }
 }
 
-@CopyWith(constructor: "_")
-class VideoPlayerState extends MediaPlayerState {
-  BetterPlayerController? videoController;
-  final ColorScheme colors;
-  final Color overFlowTextColor;
-  final GlobalKey key;
-  Duration? startAt;
-  String selectedNonDashTrack = '';
-  Duration? bufferPosition = Duration.zero;
+@freezed
+class VideoPlayerState extends MediaPlayerState with _$VideoPlayerState {
+  const factory VideoPlayerState(
+      {required ColorScheme colors,
+      required Color overFlowTextColor,
+      required GlobalKey key,
+      Duration? startAt,
+      @Default("") String selectedNonDashTrack,
+      @Default(Duration.zero) Duration? bufferPosition,
+      Video? video,
+      DownloadedVideo? offlineVideo,
+      bool? playNow,
+      bool? disableControls}) = _VideoPlayerState;
 
-  VideoPlayerState({required this.colors, required this.overFlowTextColor, required this.key, Video? video, DownloadedVideo? offlineVideo, bool? disableControls, this.startAt})
-      : super(video: video, offlineVideo: offlineVideo, disableControls: disableControls);
-
-  VideoPlayerState._(this.videoController, this.colors, this.overFlowTextColor, this.key, this.startAt, this.selectedNonDashTrack, this.bufferPosition,
-      {Video? video, DownloadedVideo? offlineVideo, bool? disableControls, bool? playNow})
-      : super(video: video, offlineVideo: offlineVideo, disableControls: disableControls, playNow: playNow);
+  const VideoPlayerState._();
 }

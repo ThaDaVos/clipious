@@ -78,6 +78,7 @@
     }
  */
 
+import 'package:copy_with_extension/copy_with_extension.dart';
 import 'package:invidious/videos/models/video_in_list.dart';
 import 'package:json_annotation/json_annotation.dart';
 
@@ -85,12 +86,13 @@ import '../../utils/models/image_object.dart';
 
 part 'playlist.g.dart';
 
-const YOUTUBE_PLAYLIST = "youtubePlayList";
-const INVIDIOUS_PLAYLIST = "invidiousPlaylist";
+const youtubePlaylist = "youtubePlayList";
+const invidiousPlaylist = "invidiousPlaylist";
 
 @JsonSerializable()
+@CopyWith(constructor: "_")
 class Playlist {
-  String type = YOUTUBE_PLAYLIST;
+  String type = youtubePlaylist;
   String title;
   String playlistId;
   String author;
@@ -107,9 +109,27 @@ class Playlist {
   @JsonKey(includeToJson: false, includeFromJson: false)
   int removedByFilter = 0;
 
-  Playlist(this.type, this.title, this.playlistId, this.author, this.authordId, this.authorUrl, this.description, this.videoCount);
+  Playlist(this.type, this.title, this.playlistId, this.author, this.authordId,
+      this.authorUrl, this.description, this.videoCount);
 
-  factory Playlist.fromJson(Map<String, dynamic> json) => _$PlaylistFromJson(json);
+  factory Playlist.fromJson(Map<String, dynamic> json) =>
+      _$PlaylistFromJson(json);
 
   Map<String, dynamic> toJson() => _$PlaylistToJson(this);
+
+  Playlist._(
+      this.type,
+      this.title,
+      this.playlistId,
+      this.author,
+      this.authordId,
+      this.authorUrl,
+      this.authorThumbnails,
+      this.description,
+      this.videoCount,
+      this.viewCount,
+      this.isListed,
+      this.updated,
+      this.videos,
+      this.removedByFilter);
 }

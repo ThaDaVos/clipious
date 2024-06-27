@@ -1,22 +1,20 @@
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
 import 'package:easy_debounce/easy_debounce.dart';
 import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/player/states/player.dart';
 import 'package:logging/logging.dart';
 
+import '../../utils.dart';
 import '../../videos/models/video_in_list.dart';
-import '../models/mediaEvent.dart';
+import '../models/media_event.dart';
 
-part 'tv_player_controls.g.dart';
+part 'tv_player_controls.freezed.dart';
 
 const Duration controlFadeOut = Duration(seconds: 4);
 const Duration throttleDuration = Duration(milliseconds: 250);
-
-const defaultStep = 10;
-const stepMultiplier = 0.2;
 
 final log = Logger('TvPlayerController');
 
@@ -26,53 +24,37 @@ class TvPlayerControlsCubit extends Cubit<TvPlayerControlsState> {
   TvPlayerControlsCubit(super.initialState, this.player);
 
   fastForward() {
-    player.seek(player.state.position + Duration(seconds: state.forwardStep));
-    state.forwardStep += (state.forwardStep * stepMultiplier).floor();
-    EasyDebounce.debounce('fast-forward-step', const Duration(seconds: 1), () {
-      state.forwardStep = defaultStep;
-    });
+    player.fastForward();
   }
 
   fastRewind() {
-    player.seek(player.state.position - Duration(seconds: state.forwardStep));
-    state.rewindStep += (state.rewindStep * stepMultiplier).floor();
-    EasyDebounce.debounce('fast-rewind-step', const Duration(seconds: 1), () {
-      state.rewindStep = defaultStep;
-    });
+    player.rewind();
   }
 
   displaySettings() {
-    var state = this.state.copyWith();
-    state.showSettings = true;
-    state.displayControls = false;
-    emit(state);
+    emit(state.copyWith(showSettings: true, displayControls: false));
   }
 
   showUi() {
-    var state = this.state.copyWith();
-    state.controlsOpacity = 1;
-    emit(state);
+    emit(state.copyWith(controlsOpacity: 1));
     hideControls();
   }
 
   KeyEventResult handleRemoteEvents(FocusNode node, KeyEvent event) {
-    bool timeLineControl = !state.showQueue && !state.showSettings && !state.displayControls;
-    log.fine('Key: ${event.logicalKey}, Timeline control: $timeLineControl, showQueue: ${state.showQueue}, showSettings: ${state.showSettings}, showControls: ${state.displayControls}');
+    bool timeLineControl =
+        !state.showQueue && !state.showSettings && !state.displayControls;
+    log.fine(
+        'Key: ${event.logicalKey}, Timeline control: $timeLineControl, showQueue: ${state.showQueue}, showSettings: ${state.showSettings}, showControls: ${state.displayControls}');
     showUi();
 
     // looks like back is activate on pressdown and not press up
-    if (event is KeyUpEvent && !timeLineControl && event.logicalKey == LogicalKeyboardKey.goBack) {
-      var state = this.state.copyWith();
-      if (state.showQueue || state.showSettings) {
-        state.showQueue = false;
-        state.showSettings = false;
-        state.displayControls = true;
-      } else {
-        state.showQueue = false;
-        state.showSettings = false;
-        state.displayControls = false;
-      }
-      emit(state);
+    if (event is KeyUpEvent &&
+        !timeLineControl &&
+        event.logicalKey == LogicalKeyboardKey.goBack) {
+      emit(state.copyWith(
+          showQueue: false,
+          showSettings: false,
+          displayControls: state.showQueue || state.showSettings));
       return KeyEventResult.handled;
     } else if (event is KeyUpEvent) {
       switch (event.logicalKey) {
@@ -109,20 +91,20 @@ class TvPlayerControlsCubit extends Cubit<TvPlayerControlsState> {
           fastForward();
         } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
           fastRewind();
-        } else if (event.logicalKey == LogicalKeyboardKey.select) {
-          var state = this.state.copyWith();
-          state.displayControls = true;
-          emit(state);
+        } else if (isOk(event.logicalKey)) {
+          emit(state.copyWith(displayControls: true));
         }
       } else {}
     }
     if (event is KeyRepeatEvent) {
       if (timeLineControl) {
         if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-          EasyThrottle.throttle('hold-seek-forward', throttleDuration, fastForward);
+          EasyThrottle.throttle(
+              'hold-seek-forward', throttleDuration, fastForward);
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-          EasyThrottle.throttle('hold-seek-backward', throttleDuration, fastRewind);
+          EasyThrottle.throttle(
+              'hold-seek-backward', throttleDuration, fastRewind);
         }
       }
     }
@@ -131,38 +113,28 @@ class TvPlayerControlsCubit extends Cubit<TvPlayerControlsState> {
 
   hideControls() {
     EasyDebounce.debounce('tv-controls', controlFadeOut, () {
-      var state = this.state.copyWith();
-      state.controlsOpacity = 0;
-      state.showSettings = false;
-      state.showQueue = false;
-      state.displayControls = false;
       if (!isClosed) {
-        emit(state);
+        emit(state.copyWith(
+            controlsOpacity: 0,
+            showSettings: false,
+            showQueue: false,
+            displayControls: false));
       }
     });
   }
 
   displayQueue() {
-    var state = this.state.copyWith();
-    state.showQueue = true;
-    state.displayControls = false;
-    emit(state);
+    emit(state.copyWith(showQueue: true, displayControls: false));
   }
 
   Future<void> playFromQueue(VideoInList video) async {
-    var state = this.state.copyWith();
-    state.showQueue = false;
-    state.loading = true;
-    emit(state);
-    state = this.state.copyWith();
+    emit(state.copyWith(showQueue: false, loading: true));
     player.switchToVideo(video);
-    state.loading = false;
-    emit(state);
+    emit(state.copyWith(loading: false));
   }
 
   onStreamEvent(MediaEvent event) {
     log.fine('Event: ${event.state}, ${event.type}');
-    var state = this.state.copyWith();
     switch (event.state) {
       case MediaState.buffering:
         // showControls();
@@ -170,33 +142,24 @@ class TvPlayerControlsCubit extends Cubit<TvPlayerControlsState> {
       case MediaState.loading:
       case MediaState.ready:
         showUi();
-        state = this.state.copyWith();
-        break;
-      case MediaState.miniDisplayChanged:
-        hideControls();
-        state = this.state.copyWith();
         break;
       default:
         break;
     }
-
-    emit(state);
   }
 }
 
-@CopyWith(constructor: "_")
-class TvPlayerControlsState {
-  TvPlayerControlsState();
-
-  double controlsOpacity = 0;
-  bool showSettings = false;
-  bool showQueue = false;
-  bool loading = false;
-  bool displayControls = false;
-
-  int forwardStep = defaultStep, rewindStep = defaultStep;
+@freezed
+class TvPlayerControlsState with _$TvPlayerControlsState {
+  const factory TvPlayerControlsState({
+    @Default(0) double controlsOpacity,
+    @Default(false) bool showSettings,
+    @Default(false) bool showQueue,
+    @Default(false) bool loading,
+    @Default(false) bool displayControls,
+  }) = _TvPlayerControlsState;
 
   bool get isShowUi => controlsOpacity == 1;
 
-  TvPlayerControlsState._(this.controlsOpacity, this.showSettings, this.showQueue, this.loading, this.displayControls, this.forwardStep, this.rewindStep);
+  const TvPlayerControlsState._();
 }

@@ -1,41 +1,46 @@
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:invidious/globals.dart';
-import 'package:invidious/main.dart';
-import 'package:invidious/myRouteObserver.dart';
 import 'package:invidious/playlists/models/playlist.dart';
 import 'package:invidious/playlists/states/playlist_in_list.dart';
 import 'package:invidious/playlists/views/components/playlist_thumbnail.dart';
-import 'package:invidious/playlists/views/screens/playlist.dart';
-import 'package:invidious/playlists/views/tv/screens/playlist.dart';
+import 'package:invidious/router.dart';
 import 'package:invidious/utils.dart';
 
 import '../../states/playlist_list.dart';
+
+const smallPlaylistAspectRatio = 1.54;
 
 class PlaylistInList extends StatelessWidget {
   final Playlist playlist;
   final bool canDeleteVideos;
   final bool isTv;
+  final bool small;
+  final bool isTablet;
+  final double thumbnailsHeight;
 
-  const PlaylistInList({super.key, required this.playlist, required this.canDeleteVideos, this.isTv = false});
+  const PlaylistInList(
+      {super.key,
+      required this.playlist,
+      required this.canDeleteVideos,
+      this.isTv = false,
+      this.small = false,
+      this.thumbnailsHeight = 95,
+      this.isTablet = false});
 
   openPlayList(BuildContext context) {
     var cubit = context.read<PlaylistListCubit>();
-    navigatorKey.currentState
-        ?.push(MaterialPageRoute(
-            settings: ROUTE_PLAYLIST,
-            builder: (context) => PlaylistView(
-                  playlist: playlist,
-                  canDeleteVideos: canDeleteVideos,
-                )))
+    AutoRouter.of(context)
+        .push(PlaylistViewRoute(
+            playlist: playlist, canDeleteVideos: canDeleteVideos))
         .then((value) => cubit.refreshPlaylists());
   }
 
   openTvPlaylist(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (context) => TvPlaylistView(playlist: playlist, canDeleteVideos: false),
-    ));
+    AutoRouter.of(context)
+        .push(TvPlaylistRoute(playlist: playlist, canDeleteVideos: false));
   }
 
   @override
@@ -47,10 +52,42 @@ class PlaylistInList extends StatelessWidget {
     return BlocProvider(
       create: (context) => PlaylistInListCubit(playlist),
       child: BlocBuilder<PlaylistInListCubit, Playlist>(
-        builder: (context, _) {
-          if (isTv) {
+        builder: (context, state) {
+          if (isTablet) {
+            return InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => openPlayList(context),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                        height: thumbnailsHeight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: PlaylistThumbnails(
+                            videos: state.videos,
+                            bestThumbnails: isTv,
+                          ),
+                        )),
+                    Text(
+                      playlist.title,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                      style: TextStyle(color: colors.primary),
+                    ),
+                    Text(locals.nVideos(playlist.videoCount)),
+                  ],
+                ),
+              ),
+            );
+          } else if (isTv) {
             return Focus(
-              onKeyEvent: (node, event) => onTvSelect(event, context, (_) => openTvPlaylist(context)),
+              onKeyEvent: (node, event) =>
+                  onTvSelect(event, context, (_) => openTvPlaylist(context)),
               autofocus: false,
               child: AspectRatio(
                 aspectRatio: 16 / 13,
@@ -67,7 +104,9 @@ class PlaylistInList extends StatelessWidget {
                             child: AnimatedContainer(
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(15),
-                                color: hasFocus ? colors.primaryContainer : colors.background,
+                                color: hasFocus
+                                    ? colors.primaryContainer
+                                    : colors.surface,
                               ),
                               duration: animationDuration,
                               child: Padding(
@@ -78,16 +117,21 @@ class PlaylistInList extends StatelessWidget {
                                     SizedBox(
                                         height: 140,
                                         child: PlaylistThumbnails(
-                                          videos: _.videos,
+                                          videos: state.videos,
                                           bestThumbnails: isTv,
                                         )),
                                     Expanded(
                                         child: Text(
                                       playlist.title,
                                       overflow: TextOverflow.ellipsis,
-                                      style: textTheme.titleLarge?.copyWith(color: colors.primary),
+                                      style: textTheme.titleLarge
+                                          ?.copyWith(color: colors.primary),
                                     )),
-                                    Padding(padding: const EdgeInsets.only(bottom: 8.0), child: Text(locals.nVideos(playlist.videoCount))),
+                                    Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 8.0),
+                                        child: Text(locals
+                                            .nVideos(playlist.videoCount))),
                                   ],
                                 ),
                               ),
@@ -96,8 +140,34 @@ class PlaylistInList extends StatelessWidget {
                     })),
               ),
             );
+          } else if (small) {
+            return AspectRatio(
+              aspectRatio: smallPlaylistAspectRatio,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => openPlayList(context),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    PlaylistThumbnails(
+                      videos: state.videos,
+                      bestThumbnails: isTv,
+                    ),
+                    Text(
+                      playlist.title,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style:
+                          textTheme.labelSmall?.copyWith(color: colors.primary),
+                    ),
+                  ],
+                ),
+              ),
+            );
           } else {
             return InkWell(
+              borderRadius: BorderRadius.circular(10),
               onTap: () => openPlayList(context),
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
@@ -110,7 +180,7 @@ class PlaylistInList extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: PlaylistThumbnails(
-                            videos: _.videos,
+                            videos: state.videos,
                             bestThumbnails: isTv,
                           ),
                         )),

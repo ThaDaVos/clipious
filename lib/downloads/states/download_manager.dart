@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:animate_to/animate_to.dart';
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
 import 'package:dio/dio.dart';
+import 'package:easy_debounce/easy_throttle.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/downloads/models/downloaded_video.dart';
 import 'package:invidious/extensions.dart';
 import 'package:invidious/globals.dart';
@@ -16,7 +16,7 @@ import '../../player/states/player.dart';
 import '../../videos/models/adaptive_format.dart';
 import '../../videos/models/video.dart';
 
-part 'download_manager.g.dart';
+part 'download_manager.freezed.dart';
 
 final Logger log = Logger('DownloadState');
 
@@ -44,84 +44,101 @@ class DownloadManagerCubit extends Cubit<DownloadManagerState> {
     onReady();
   }
 
-  @override
-  close() async {
-    var state = this.state.copyWith();
-    state.animateToController.dispose();
-    super.close();
-  }
-
   onReady() {
     setVideos();
   }
 
-  setVideos() {
-    var state = this.state.copyWith();
+  setVideos() async {
     var vids = db.getAllDownloads();
     // checking if we have any video that are not fail, not completed and not currently downloading
     for (var v in vids) {
-      if (!v.downloadComplete && !v.downloadFailed && !state.downloadProgresses.containsKey(v.videoId)) {
+      if (!v.downloadComplete &&
+          !v.downloadFailed &&
+          !state.downloadProgresses.containsKey(v.videoId)) {
         // this download was interrupted by app restart or crash or something else, we set it as errored
         v.downloadFailed = true;
-        db.upsertDownload(v);
+        await db.upsertDownload(v);
       }
     }
 
-    state.videos = vids;
-    emit(state);
+    emit(state.copyWith(videos: vids));
   }
 
   void playAll() {
     setVideos();
-    player.playOfflineVideos(state.videos.where((element) => element.downloadComplete && !element.downloadFailed).toList());
+    player.playOfflineVideos(state.videos
+        .where((element) => element.downloadComplete && !element.downloadFailed)
+        .toList());
   }
 
-  onProgress(int count, int total, DownloadedVideo video) {
-    var state = this.state.copyWith();
-    // log.fine('Download of video $videoId}, $count / $total =  ${count / total}');
-    var downloadProgress = state.downloadProgresses[video.videoId];
-    downloadProgress?.count = count;
-    downloadProgress?.total = total;
-    emit(state);
+  onProgress(int count, int total, DownloadedVideo video) async {
     if (count == total) {
-      state = this.state.copyWith();
-      state.downloadProgresses.remove(video.videoId);
+      var progresses =
+          Map<String, DownloadProgress>.from(state.downloadProgresses);
+      var downloadProgress = progresses[video.videoId];
+      progresses.remove(video.videoId);
       video.downloadComplete = true;
-      db.upsertDownload(video);
-      emit(state);
+      await db.upsertDownload(video);
+      emit(state.copyWith(downloadProgresses: progresses));
       setVideos();
-    }
-
-    for (var f in downloadProgress?.listeners ?? []) {
-      f(count / total);
+      for (var f in downloadProgress?.listeners ?? []) {
+        f(count / total);
+      }
+    } else {
+      EasyThrottle.throttle(
+          'download-${video.videoId}', const Duration(milliseconds: 500), () {
+        log.fine(
+            'Download of video ${video.videoId}, $count / $total =  ${count / total}, Total: ${state.totalProgress}');
+        var progresses =
+            Map<String, DownloadProgress>.from(state.downloadProgresses);
+        var downloadProgress = progresses[video.videoId];
+        downloadProgress?.count = count;
+        downloadProgress?.total = total;
+        emit(state.copyWith(downloadProgresses: progresses));
+        setVideos();
+        for (var f in downloadProgress?.listeners ?? []) {
+          f(count / total);
+        }
+      });
     }
   }
 
-  Future<bool> addDownload(String videoId, {String quality = '720p', bool audioOnly = false}) async {
+  Future<bool> addDownload(String videoId,
+      {String quality = '720p', bool audioOnly = false}) async {
     if (state.videos.any((element) => element.videoId == videoId)) {
       return false;
     } else {
       Video vid = await service.getVideo(videoId);
-      var downloadedVideo =
-          DownloadedVideo(videoId: vid.videoId, title: vid.title, author: vid.author, authorUrl: vid.authorUrl, audioOnly: audioOnly, lengthSeconds: vid.lengthSeconds, quality: quality);
-      db.upsertDownload(downloadedVideo);
+      var downloadedVideo = DownloadedVideo(
+          videoId: vid.videoId,
+          title: vid.title,
+          author: vid.author,
+          authorUrl: vid.authorUrl,
+          audioOnly: audioOnly,
+          lengthSeconds: vid.lengthSeconds,
+          quality: quality);
+      await db.upsertDownload(downloadedVideo);
 
       String contentUrl;
 
       if (!audioOnly) {
-        FormatStream stream = vid.formatStreams.firstWhere((element) => element.resolution == quality);
+        FormatStream stream = vid.formatStreams
+            .firstWhere((element) => element.resolution == quality);
         contentUrl = stream.url;
       } else {
-        AdaptiveFormat audio = vid.adaptiveFormats.sortByReversed((e) => int.parse(e.bitrate ?? "0")).firstWhere((element) => element.type.contains("audio"));
+        AdaptiveFormat audio = vid.adaptiveFormats
+            .sortByReversed((e) => int.parse(e.bitrate ?? "0"))
+            .firstWhere((element) => element.type.contains("audio"));
         contentUrl = audio.url;
       }
 
       Dio dio = Dio();
       CancelToken cancelToken = CancelToken();
 
-      var state = this.state.copyWith();
-      state.downloadProgresses[downloadedVideo.videoId] = DownloadProgress(cancelToken);
-      emit(state);
+      var progresses =
+          Map<String, DownloadProgress>.from(state.downloadProgresses);
+      progresses[downloadedVideo.videoId] = DownloadProgress(cancelToken);
+      emit(state.copyWith(downloadProgresses: progresses));
 
       setVideos();
       // download thumbnail
@@ -137,22 +154,32 @@ class DownloadManagerCubit extends Cubit<DownloadManagerState> {
       // download video
       var videoPath = await downloadedVideo.mediaPath;
 
-      log.info("Downloading video ${vid.title}, audioOnly ? $audioOnly, quality: $quality (if not only audio) to path: $videoPath");
+      log.info(
+          "Downloading video ${vid.title}, audioOnly ? $audioOnly, quality: $quality (if not only audio) to path: $videoPath");
       dio
-          .download(contentUrl, videoPath, onReceiveProgress: (count, total) => onProgress(count, total, downloadedVideo), cancelToken: cancelToken)
-          .catchError((err) => onDownloadError(err, downloadedVideo));
+          .download(contentUrl, videoPath,
+              onReceiveProgress: (count, total) =>
+                  onProgress(count, total, downloadedVideo),
+              cancelToken: cancelToken,
+              deleteOnError: true)
+          .catchError((err) {
+        onDownloadError(err, downloadedVideo);
+        return Response<void>(requestOptions: RequestOptions());
+      });
 
       return true;
     }
   }
 
   Future<void> deleteVideo(DownloadedVideo vid) async {
-    var state = this.state.copyWith();
-    var downloadProgress = state.downloadProgresses[vid.videoId];
-    log.fine('cancelling download for video ${vid.videoId}, present ? : ${downloadProgress != null}');
+    var progresses =
+        Map<String, DownloadProgress>.from(state.downloadProgresses);
+    var downloadProgress = progresses[vid.videoId];
+    log.fine(
+        'cancelling download for video ${vid.videoId}, present ? : ${downloadProgress != null}');
     downloadProgress?.cancelToken.cancel();
 
-    state.downloadProgresses.remove(vid.videoId);
+    progresses.remove(vid.videoId);
 
     try {
       String path = await vid.mediaPath;
@@ -168,57 +195,66 @@ class DownloadManagerCubit extends Cubit<DownloadManagerState> {
       log.fine('File might not be available, that\'s ok');
     }
 
-    db.deleteDownload(vid);
-    emit(state);
+    await db.deleteDownload(vid);
+    emit(state.copyWith(downloadProgresses: progresses));
 
     setVideos();
   }
 
-  Future<void> onDownloadError(DioException err, DownloadedVideo vid) async {
-    var state = this.state.copyWith();
+  FutureOr<void> onDownloadError(DioException err, DownloadedVideo vid) async {
     if (err.type == DioExceptionType.cancel) {
       log.fine("video cancelled, nothing to do");
       return;
     }
-    log.severe("Failed to download video ${vid.title}, removing it", err.stackTrace);
+    log.severe(
+        "Failed to download video ${vid.title}, removing it", err.stackTrace);
     vid.downloadFailed = true;
     vid.downloadComplete = false;
     onProgress(1, 1, vid);
-    state.downloadProgresses.remove(vid.videoId);
-    db.upsertDownload(vid);
+    var progresses =
+        Map<String, DownloadProgress>.from(state.downloadProgresses);
+    progresses.remove(vid.videoId);
+    await db.upsertDownload(vid);
     setVideos();
-    emit(state);
+    emit(state.copyWith(downloadProgresses: progresses));
     return;
   }
 
   Future<void> retryDownload(DownloadedVideo vid) async {
     await deleteVideo(vid);
-    await addDownload(vid.videoId, quality: vid.quality, audioOnly: vid.audioOnly);
+    await addDownload(vid.videoId,
+        quality: vid.quality, audioOnly: vid.audioOnly);
   }
 
-  void addListener(String? videoId, void Function(double progress) setProgress) {
-    var state = this.state.copyWith();
-    state.downloadProgresses[videoId]?.addListener(setProgress);
-    emit(state);
+  void addListener(
+      String? videoId, void Function(double progress) setProgress) {
+    var progresses =
+        Map<String, DownloadProgress>.from(state.downloadProgresses);
+    progresses[videoId]?.addListener(setProgress);
+    emit(state.copyWith(downloadProgresses: progresses));
   }
 
-  void removeListener(String? videoId, void Function(double progress) setProgress) {
-    var state = this.state.copyWith();
-    state.downloadProgresses[videoId]?.removeListener(setProgress);
-    emit(state);
+  void removeListener(
+      String? videoId, void Function(double progress) setProgress) {
+    var progresses =
+        Map<String, DownloadProgress>.from(state.downloadProgresses);
+
+    progresses[videoId]?.removeListener(setProgress);
+    emit(state.copyWith(downloadProgresses: progresses));
   }
 
-  bool canPlayAll() => state.videos.where((element) => element.downloadComplete).isNotEmpty;
+  bool canPlayAll() =>
+      state.videos.where((element) => element.downloadComplete).isNotEmpty;
 }
 
-@CopyWith(constructor: "_")
-class DownloadManagerState {
-  DownloadManagerState();
+@freezed
+class DownloadManagerState with _$DownloadManagerState {
+  const factory DownloadManagerState(
+          {@Default([]) List<DownloadedVideo> videos,
+          @Default({}) Map<String, DownloadProgress> downloadProgresses}) =
+      _DownloadManagerState;
 
-  AnimateToController animateToController = AnimateToController();
-  List<DownloadedVideo> videos = [];
-
-  Map<String, DownloadProgress> downloadProgresses = {};
+  const DownloadManagerState._();
 
   double get totalProgress {
     int downloaded = 0;
@@ -231,6 +267,4 @@ class DownloadManagerState {
 
     return downloaded / total;
   }
-
-  DownloadManagerState._(this.animateToController, this.videos, this.downloadProgresses);
 }

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:invidious/globals.dart';
 import 'package:invidious/player/states/player.dart';
 
 class MiniPlayerAware extends StatelessWidget {
   final Widget child;
 
-  const MiniPlayerAware({Key? key, required this.child}) : super(key: key);
+  const MiniPlayerAware({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -13,10 +14,17 @@ class MiniPlayerAware extends StatelessWidget {
       builder: (
         context,
       ) {
-        bool isHidden = context.select((PlayerCubit cubit) => cubit.state.isHidden);
+        bool isHidden =
+            context.select((PlayerCubit cubit) => cubit.state.isHidden);
+        bool isClosing =
+            context.select((PlayerCubit cubit) => cubit.state.isClosing);
         bool isMini = context.select((PlayerCubit cubit) => cubit.state.isMini);
-        return Padding(
-          padding: EdgeInsets.only(bottom: !isHidden && isMini ? targetHeight : 0),
+
+        return AnimatedContainer(
+          padding: EdgeInsets.only(
+              bottom: !isHidden && isMini && !isClosing ? targetHeight : 0),
+          duration: animationDuration,
+          curve: Curves.easeInOutQuad,
           child: child,
         );
       },

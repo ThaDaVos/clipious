@@ -12,10 +12,27 @@ class VideoMetrics extends StatelessWidget {
   final int? lengthSeconds, viewCount, likeCount;
   final String? publishedText;
 
-  const VideoMetrics({super.key, this.video, this.dislikes, this.style, this.iconSize = 20, this.lengthSeconds, this.viewCount, this.likeCount, this.publishedText})
+  const VideoMetrics(
+      {super.key,
+      this.video,
+      this.dislikes,
+      this.style,
+      this.iconSize = 20,
+      this.lengthSeconds,
+      this.viewCount,
+      this.likeCount,
+      this.publishedText})
       : assert(
-            (video != null && lengthSeconds == null && viewCount == null && likeCount == null && publishedText == null) ||
-                (video == null && (lengthSeconds != null || viewCount != null || likeCount != null || publishedText != null)),
+            (video != null &&
+                    lengthSeconds == null &&
+                    viewCount == null &&
+                    likeCount == null &&
+                    publishedText == null) ||
+                (video == null &&
+                    (lengthSeconds != null ||
+                        viewCount != null ||
+                        likeCount != null ||
+                        publishedText != null)),
             'need either a video or given metrics');
 
   Widget get separator => Padding(
@@ -102,7 +119,8 @@ class VideoMetrics extends StatelessWidget {
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8.0, vertical: 2),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -136,6 +154,8 @@ class VideoMetrics extends StatelessWidget {
       metrics.removeAt(metrics.length - 1);
     }
 
-    return metrics.isNotEmpty ? Row(children: metrics) : const SizedBox.shrink();
+    return metrics.isNotEmpty
+        ? Row(children: metrics)
+        : const SizedBox.shrink();
   }
 }

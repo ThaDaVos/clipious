@@ -1,78 +1,118 @@
 import 'dart:async';
 
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
-import 'package:flutter/material.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:invidious/router.dart';
 import 'package:logging/logging.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
-import '../../database.dart';
 import '../../globals.dart';
-import '../../main.dart';
+import '../../home/models/db/home_layout.dart';
 import '../../settings/models/db/server.dart';
-import '../../videos/views/screens/video.dart';
+import '../../settings/models/db/settings.dart';
 
-part 'app.g.dart';
+part 'app.freezed.dart';
 
 final log = Logger('HomeState');
 
 class AppCubit extends Cubit<AppState> {
+  late final StreamSubscription intentDataStreamSubscription;
+
   AppCubit(super.initialState) {
     onReady();
+    initState();
   }
 
-  onReady() {
-    state.intentDataStreamSubscription = ReceiveSharingIntent.getTextStream().listen((String value) {
-      openAppLink(value);
+  initState() async {
+    Server? server;
+    try {
+      server = await db.getCurrentlySelectedServer();
+    } catch (e) {
+      server = null;
+    }
+    HomeLayout homeLayout = db.getHomeLayout();
+    bool isLoggedIn = (server?.authToken?.isNotEmpty ?? false) ||
+        (server?.sidCookie?.isNotEmpty ?? false);
+
+    var firstIndex = int.parse(db.getSettings(onOpenSettingName)?.value ?? '0');
+    if (!isLoggedIn && firstIndex > 1 || firstIndex < 0) {
+      firstIndex = 0;
+    }
+    emit(state.copyWith(
+        firstIndex: firstIndex, homeLayout: homeLayout, server: server));
+  }
+
+  onReady() async {
+    intentDataStreamSubscription =
+        ReceiveSharingIntent.instance.getMediaStream().listen((shared) {
+      final String? value = shared
+          .where((element) => element.type == SharedMediaType.url)
+          .map((e) => e.path)
+          .firstOrNull;
+      if (value != null) {
+        openAppLink(value, false);
+      }
     }, onError: (err) {
       log.warning("getLinkStream error: $err");
     });
 
     // For sharing or opening urls/text coming from outside the app while the app is closed
-    ReceiveSharingIntent.getInitialText().then((value) {
-      openAppLink((value ?? ''));
+    ReceiveSharingIntent.instance.getInitialMedia().then((shared) {
+      final String? value = shared
+          .where((element) => element.type == SharedMediaType.url)
+          .map((e) => e.path)
+          .firstOrNull;
+      if (value != null) {
+        openAppLink(value, true);
+      }
+      ReceiveSharingIntent.instance.reset();
     });
 
-    var selectedIndex = int.parse(db.getSettings(ON_OPEN)?.value ?? '0');
-    if (!isLoggedIn && selectedIndex > 1 || selectedIndex < 0) {
-      selectedIndex = 0;
-    }
-    selectIndex(selectedIndex);
+    service.syncHistory();
   }
 
   @override
   close() async {
-    state.intentDataStreamSubscription.cancel();
+    intentDataStreamSubscription.cancel();
     super.close();
   }
 
-  void openAppLink(String url) {
+  void openAppLink(String url, bool fullStack) {
     try {
+      log.fine('opening $url, full stack: $fullStack');
       Uri uri = Uri.parse(url);
-      if (YOUTUBE_HOSTS.contains(uri.host)) {
-        if (uri.pathSegments.length == 1 && uri.pathSegments.contains("watch") && uri.queryParameters.containsKey('v')) {
-          String videoId = uri.queryParameters['v']!;
-          navigatorKey.currentState?.push(MaterialPageRoute(
-              builder: (context) => VideoView(
-                    videoId: videoId,
-                  )));
+      String? videoId;
+      if (youtubeHosts.contains(uri.host)) {
+        if (uri.pathSegments.length == 1 &&
+            uri.pathSegments.contains("watch") &&
+            uri.queryParameters.containsKey('v')) {
+          videoId = uri.queryParameters['v']!;
         }
         if (uri.host == 'youtu.be' && uri.pathSegments.length == 1) {
-          String videoId = uri.pathSegments[0];
-          navigatorKey.currentState?.push(MaterialPageRoute(
-              builder: (context) => VideoView(
-                    videoId: videoId,
-                  )));
+          videoId = uri.pathSegments[0];
+        }
+
+        if (videoId != null) {
+          if (fullStack) {
+            appRouter.replaceAll([
+              MainRoute(children: [
+                const MainContentRoute(),
+                VideoRoute(videoId: videoId)
+              ])
+            ]);
+          } else {
+            appRouter.push(VideoRoute(videoId: videoId));
+          }
         }
       }
     } catch (err, stacktrace) {
       // not a url;
-      log.severe('Couldn\'t open external url: ${url}', err, stacktrace);
+      log.severe('Couldn\'t open external url: $url', err, stacktrace);
     }
   }
 
   selectIndex(int index) {
-    emit(state.copyWith(selectedIndex: index));
+    emit(state.copyWith(firstIndex: index));
   }
 
   rebuildApp() {
@@ -80,29 +120,25 @@ class AppCubit extends Cubit<AppState> {
   }
 
   setServer(Server s) {
-    emit(state.copyWith(server: s, selectedIndex: 0));
+    emit(state.copyWith(server: s, firstIndex: 0));
   }
 
-  bool get isLoggedIn => (state.server?.authToken?.isNotEmpty ?? false) || (state.server?.sidCookie?.isNotEmpty ?? false);
+  updateLayout() {
+    emit(state.copyWith(homeLayout: db.getHomeLayout()));
+  }
+
+  bool get isLoggedIn =>
+      (state.server?.authToken?.isNotEmpty ?? false) ||
+      (state.server?.sidCookie?.isNotEmpty ?? false);
+
+  // Set the whole app in a loading state.
+  setGlobalLoading(bool loading) {
+    emit(state.copyWith(globalLoading: loading));
+  }
 }
 
-@CopyWith(constructor: "_")
-class AppState {
-  late int selectedIndex;
-
-  late Server? server;
-
-  late StreamSubscription intentDataStreamSubscription;
-
-  AppState() {
-    try {
-      server = db.getCurrentlySelectedServer();
-    } catch (e) {
-      server = null;
-    }
-
-    // For sharing or opening urls/text coming from outside the app while the app is in the memory
-  }
-
-  AppState._(this.selectedIndex, this.server, this.intentDataStreamSubscription);
+@freezed
+class AppState with _$AppState {
+  const factory AppState(int firstIndex, Server? server, HomeLayout homeLayout,
+      {@Default(false) bool globalLoading}) = _AppState;
 }

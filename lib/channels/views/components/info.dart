@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:invidious/channels/models/channel.dart';
+import 'package:invidious/globals.dart';
 import 'package:invidious/utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../subscription_management/view/components/subscribeButton.dart';
+import '../../../subscription_management/view/components/subscribe_button.dart';
 import '../../../utils/models/image_object.dart';
 import '../../../videos/models/video_in_list.dart';
 import '../../../videos/views/components/video_in_list.dart';
@@ -21,16 +22,39 @@ class ChannelInfo extends StatelessWidget {
     var locals = AppLocalizations.of(context)!;
     ColorScheme colors = Theme.of(context).colorScheme;
     var textTheme = Theme.of(context).textTheme;
+
+    final deviceType = getDeviceType();
+
     List<Widget> widgets = [
-      Text(
-        channel.author ?? '',
-        style: textTheme.titleLarge?.copyWith(color: colors.primary),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Thumbnail(
+              width: 50,
+              height: 50,
+              thumbnailUrl:
+                  ImageObject.getBestThumbnail(channel.authorThumbnails)?.url ??
+                      '',
+              decoration: BoxDecoration(
+                color: colors.secondaryContainer,
+                shape: BoxShape.circle,
+              )),
+          const SizedBox(
+            width: 8,
+          ),
+          Text(
+            channel.author,
+            style: textTheme.titleLarge?.copyWith(color: colors.primary),
+          ),
+        ],
       ),
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: Row(
           children: [
-            SubscribeButton(channelId: channel.authorId, subCount: compactCurrency.format(channel.subCount)),
+            SubscribeButton(
+                channelId: channel.authorId,
+                subCount: compactCurrency.format(channel.subCount)),
           ],
         ),
       ),
@@ -38,8 +62,10 @@ class ChannelInfo extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: SelectableLinkify(
             text: channel.description,
-            linkStyle: TextStyle(color: colors.primary, decoration: TextDecoration.none),
-            onOpen: (link) => launchUrl(Uri.parse(link.url), mode: LaunchMode.externalApplication),
+            linkStyle: TextStyle(
+                color: colors.primary, decoration: TextDecoration.none),
+            onOpen: (link) => launchUrl(Uri.parse(link.url),
+                mode: LaunchMode.externalApplication),
             options: const LinkifyOptions(humanize: true, removeWww: true)),
       ),
       Padding(
@@ -60,40 +86,57 @@ class ChannelInfo extends StatelessWidget {
         mainAxisSpacing: 5,
         childAspectRatio: getGridAspectRatio(context),
         children: channel.latestVideos?.map((e) {
-              VideoInList videoInList = VideoInList(e.title, e.videoId, e.lengthSeconds, 0, e.author, channel.authorId, channel.authorId, 0, '', e.videoThumbnails);
+              VideoInList videoInList = VideoInList(
+                  e.title,
+                  e.videoId,
+                  e.lengthSeconds,
+                  0,
+                  e.author,
+                  channel.authorId,
+                  channel.authorId,
+                  0,
+                  '',
+                  e.videoThumbnails)
+                ..deArrowThumbnailUrl = e.deArrowThumbnailUrl;
               videoInList.filtered = e.filtered;
               videoInList.matchedFilters = e.matchedFilters;
               return VideoListItem(
                 video: videoInList,
-                source: VideoListSource.channelLatest,
               );
             }).toList() ??
             []));
 
     return SingleChildScrollView(
-      child: Stack(
-        alignment: Alignment.topCenter,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            height: 230,
-            child: Thumbnail(
-                width: double.infinity,
-                thumbnailUrl: ImageObject.getBestThumbnail(channel.authorThumbnails)?.url ?? '',
-                id: 'channel-banner/${channel.authorId}',
-                decoration: BoxDecoration(
-                  color: colors.secondaryContainer,
-                )),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: innerHorizontalPadding),
+            child: SizedBox(
+              height: deviceType == DeviceType.phone ? 100 : 230,
+              child: Thumbnail(
+                  width: double.infinity,
+                  thumbnailUrl:
+                      ImageObject.getBestThumbnail(channel.authorBanners)
+                              ?.url ??
+                          '',
+                  decoration: BoxDecoration(
+                      color: colors.secondaryContainer,
+                      borderRadius: BorderRadius.circular(10))),
+            ),
           ),
-          Container(
-            padding: const EdgeInsets.only(top: 200, left: 8, right: 8),
-            decoration: BoxDecoration(
-                gradient: LinearGradient(
-                    begin: Alignment(0, Alignment.topCenter.y + 0.033), end: Alignment(0, Alignment.topCenter.y + 0.045), colors: [colors.background.withOpacity(0), colors.background])),
+          const SizedBox(
+            height: 10,
+          ),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: innerHorizontalPadding),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: widgets,
             ),
-          ),
+          )
         ],
       ),
     );

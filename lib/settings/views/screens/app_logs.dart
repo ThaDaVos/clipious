@@ -1,14 +1,15 @@
+import 'package:auto_route/annotations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:invidious/settings/states/app_logs.dart';
 
 import '../../../globals.dart';
-import '../../../main.dart';
 import '../../models/db/app_logs.dart';
 
-class AppLogs extends StatelessWidget {
-  const AppLogs({super.key});
+@RoutePage()
+class AppLogsScreen extends StatelessWidget {
+  const AppLogsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,17 +18,18 @@ class AppLogs extends StatelessWidget {
     var textTheme = Theme.of(context).textTheme;
 
     return BlocProvider(
-      create: (context) => AppLogsCubit(AppLogsState()),
+      create: (context) => AppLogsCubit(AppLogsState.init()),
       child: BlocBuilder<AppLogsCubit, AppLogsState>(
-        builder: (context, _) {
+        builder: (context, state) {
           var cubit = context.read<AppLogsCubit>();
           return Scaffold(
             appBar: AppBar(
-              elevation: 0,
-              scrolledUnderElevation: 0,
-              backgroundColor: colors.background,
               title: Text(locals.appLogs),
-              actions: [IconButton(onPressed: cubit.selectAll, icon: const Icon(Icons.checklist))],
+              actions: [
+                IconButton(
+                    onPressed: cubit.selectAll,
+                    icon: const Icon(Icons.checklist))
+              ],
             ),
             body: SafeArea(
               bottom: false,
@@ -38,21 +40,25 @@ class AppLogs extends StatelessWidget {
                     left: 0,
                     right: 0,
                     top: 0,
-                    bottom: _.selected.isNotEmpty ? 50 : 0,
+                    bottom: state.selected.isNotEmpty ? 50 : 0,
                     child: ListView.separated(
-                      itemCount: _.logs.length,
+                      itemCount: state.logs.length,
                       itemBuilder: (context, index) {
-                        AppLog log = _.logs[index];
+                        AppLog log = state.logs[index];
                         return CheckboxListTile(
+                          key: ValueKey(log.uuid),
                           title: Text(
-                            '${log.level ?? ''} - ${log.logger} - ${log.time}',
-                            style: textTheme.labelSmall?.copyWith(color: colors.secondary),
+                            '${log.level} - ${log.logger} - ${log.time}',
+                            style: textTheme.labelSmall
+                                ?.copyWith(color: colors.secondary),
                           ),
-                          subtitle: Text('${log.message}${log.stacktrace != null ? '\n\n${log.stacktrace}' : ''}'),
+                          subtitle: Text(
+                              '${log.message}${log.stacktrace != null ? '\n\n${log.stacktrace}' : ''}'),
                           dense: true,
                           visualDensity: VisualDensity.compact,
-                          value: _.selected.contains(log.id),
-                          onChanged: (bool? value) => cubit.selectLog(log.id, value),
+                          value: state.selected.contains(log.uuid),
+                          onChanged: (bool? value) =>
+                              cubit.selectLog(log.uuid, value),
                         );
                       },
                       separatorBuilder: (BuildContext context, int index) {
@@ -63,17 +69,10 @@ class AppLogs extends StatelessWidget {
                   AnimatedPositioned(
                       left: 0,
                       right: 0,
-                      bottom: _.selected.isNotEmpty ? 0 : -50,
+                      bottom: state.selected.isNotEmpty ? 0 : -50,
                       duration: animationDuration,
                       child: InkWell(
-                        onTap: () {
-                          cubit.copySelectedLogsToClipboard();
-                          final ScaffoldMessengerState? scaffold = scaffoldKey.currentState;
-                          scaffold?.showSnackBar(SnackBar(
-                            content: Text(locals.logsCopied),
-                            duration: const Duration(seconds: 1),
-                          ));
-                        },
+                        onTap: cubit.copySelectedLogsToClipboard,
                         child: Container(
                           alignment: Alignment.center,
                           height: 50,
@@ -88,7 +87,8 @@ class AppLogs extends StatelessWidget {
                                   size: 15,
                                 ),
                               ),
-                              Text('${locals.copyToClipBoard} (${_.selected.length})'),
+                              Text(
+                                  '${locals.copyToClipBoard} (${state.selected.length})'),
                             ],
                           ),
                         ),

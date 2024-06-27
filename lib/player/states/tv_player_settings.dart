@@ -1,17 +1,26 @@
-import 'package:better_player/better_player.dart';
+import 'package:river_player/river_player.dart';
 import 'package:bloc/bloc.dart';
-import 'package:copy_with_extension/copy_with_extension.dart';
-import 'package:invidious/database.dart';
-import 'package:invidious/globals.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:invidious/player/states/video_player.dart';
-import 'package:invidious/settings/models/db/settings.dart';
 import 'package:logging/logging.dart';
 
 import '../../settings/states/settings.dart';
 
-part 'tv_player_settings.g.dart';
+part 'tv_player_settings.freezed.dart';
 
-const List<String> tvAvailablePlaybackSpeeds = ['0.5x', '0.75x', '1x', '1.25x', '1.5x', '1.75x', '2x', '2.25x', '2.5x', '2.75x', '3x'];
+const List<String> tvAvailablePlaybackSpeeds = [
+  '0.5x',
+  '0.75x',
+  '1x',
+  '1.25x',
+  '1.5x',
+  '1.75x',
+  '2x',
+  '2.25x',
+  '2.5x',
+  '2.75x',
+  '3x'
+];
 final Logger log = Logger('TvSettingsController');
 
 enum Tabs {
@@ -27,45 +36,53 @@ class TvPlayerSettingsCubit extends Cubit<TvPlayerSettingsState> {
 
   TvPlayerSettingsCubit(super.initialState, this.player, this.settings);
 
-  List<String> get videoTrackNames => settings.state.useDash || (player.state.video?.liveNow ?? false)
-      ? player.state.videoController?.betterPlayerAsmsTracks.map((e) => '${e.height}p').toSet().toList() ?? []
-      : player.state.videoController?.betterPlayerDataSource?.resolutions?.keys.toList() ?? [];
+  List<String> get videoTrackNames =>
+      settings.state.useDash || (player.state.video?.liveNow ?? false)
+          ? player.videoController?.betterPlayerAsmsTracks
+                  .map((e) => '${e.height}p')
+                  .toSet()
+                  .toList() ??
+              []
+          : player.videoController?.betterPlayerDataSource?.resolutions?.keys
+                  .toList() ??
+              [];
 
-  List<String> get audioTrackNames => settings.state.useDash ? player.state.videoController?.betterPlayerAsmsAudioTracks?.map((e) => '${e.label}').toList() ?? [] : [];
+  List<String> get audioTrackNames => settings.state.useDash
+      ? player.videoController?.betterPlayerAsmsAudioTracks
+              ?.map((e) => '${e.label}')
+              .toList() ??
+          []
+      : [];
 
-  List<String> get availableCaptions => player.state.videoController?.betterPlayerSubtitlesSourceList.map((e) => '${e.name}').toList() ?? [];
+  List<String> get availableCaptions =>
+      player.videoController?.betterPlayerSubtitlesSourceList
+          .map((e) => '${e.name}')
+          .toList() ??
+      [];
 
-  BetterPlayerController? get videoController => player.state.videoController;
+  BetterPlayerController? get videoController => player.videoController;
 
   videoButtonFocusChange(bool focus) {
     if (focus) {
-      var state = this.state.copyWith();
-      state.selected = Tabs.video;
-      emit(state);
+      emit(state.copyWith(selected: Tabs.video));
     }
   }
 
   audioButtonFocusChange(bool focus) {
     if (focus) {
-      var state = this.state.copyWith();
-      state.selected = Tabs.audio;
-      emit(state);
+      emit(state.copyWith(selected: Tabs.audio));
     }
   }
 
   captionsButtonFocusChange(bool focus) {
     if (focus) {
-      var state = this.state.copyWith();
-      state.selected = Tabs.captions;
-      emit(state);
+      emit(state.copyWith(selected: Tabs.captions));
     }
   }
 
   playbackSpeedButtonFocusChange(bool focus) {
     if (focus) {
-      var state = this.state.copyWith();
-      state.selected = Tabs.playbackSpeed;
-      emit(state);
+      emit(state.copyWith(selected: Tabs.playbackSpeed));
     }
   }
 
@@ -73,14 +90,16 @@ class TvPlayerSettingsCubit extends Cubit<TvPlayerSettingsState> {
     log.fine('Video quality selected $selected');
 
     if (settings.state.useDash) {
-      BetterPlayerAsmsTrack? track = videoController?.betterPlayerAsmsTracks.firstWhere((element) => '${element.height}p' == selected);
+      BetterPlayerAsmsTrack? track = videoController?.betterPlayerAsmsTracks
+          .firstWhere((element) => '${element.height}p' == selected);
 
       if (track != null) {
         log.fine('Changing video track to $selected');
         videoController?.setTrack(track);
       }
     } else {
-      String? url = videoController?.betterPlayerDataSource?.resolutions?[selected];
+      String? url =
+          videoController?.betterPlayerDataSource?.resolutions?[selected];
       if (url != null) {
         videoController?.setResolution(url);
       }
@@ -89,7 +108,9 @@ class TvPlayerSettingsCubit extends Cubit<TvPlayerSettingsState> {
 
   changeChangeAudioTrack(String selected) {
     log.fine('Audio quality selected $selected');
-    BetterPlayerAsmsAudioTrack? track = videoController?.betterPlayerAsmsAudioTracks?.firstWhere((e) => '${e.label}' == selected);
+    BetterPlayerAsmsAudioTrack? track = videoController
+        ?.betterPlayerAsmsAudioTracks
+        ?.firstWhere((e) => '${e.label}' == selected);
 
     if (track != null) {
       log.fine('Changing audio track to $selected');
@@ -99,7 +120,9 @@ class TvPlayerSettingsCubit extends Cubit<TvPlayerSettingsState> {
 
   changeSubtitles(String selected) {
     log.fine('Subtitles selected $selected');
-    BetterPlayerSubtitlesSource? track = videoController?.betterPlayerSubtitlesSourceList.firstWhere((e) => '${e.name}' == selected);
+    BetterPlayerSubtitlesSource? track = videoController
+        ?.betterPlayerSubtitlesSourceList
+        .firstWhere((e) => '${e.name}' == selected);
 
     settings.setLastSubtitle(selected);
 
@@ -115,11 +138,8 @@ class TvPlayerSettingsCubit extends Cubit<TvPlayerSettingsState> {
   }
 }
 
-@CopyWith(constructor: "_")
-class TvPlayerSettingsState {
-  Tabs selected = Tabs.video;
-
-  TvPlayerSettingsState();
-
-  TvPlayerSettingsState._(this.selected);
+@freezed
+class TvPlayerSettingsState with _$TvPlayerSettingsState {
+  const factory TvPlayerSettingsState({@Default(Tabs.video) Tabs selected}) =
+      _TvPlayerSettingsState;
 }

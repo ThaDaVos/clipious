@@ -12,7 +12,16 @@ class TvButton extends StatelessWidget {
   final Function(bool focus)? onFocusChanged;
   final Widget Function(BuildContext context, bool hasFocus)? builder;
 
-  const TvButton({Key? key, this.child, this.onPressed, this.focusedColor, this.unfocusedColor, this.borderRadius, this.autofocus, this.onFocusChanged, this.builder}) : super(key: key);
+  const TvButton(
+      {super.key,
+      this.child,
+      this.onPressed,
+      this.focusedColor,
+      this.unfocusedColor,
+      this.borderRadius,
+      this.autofocus,
+      this.onFocusChanged,
+      this.builder});
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +30,9 @@ class TvButton extends StatelessWidget {
     return Focus(
       autofocus: autofocus ?? false,
       onFocusChange: onFocusChanged,
-      onKeyEvent: (node, event) => onPressed != null ? onTvSelect(event, context, onPressed!) : KeyEventResult.ignored,
+      onKeyEvent: (node, event) => onPressed != null
+          ? onTvSelect(event, context, onPressed!)
+          : KeyEventResult.ignored,
       child: Builder(
         builder: (ctx) {
           bool hasFocus = Focus.of(ctx).hasFocus;
@@ -31,7 +42,12 @@ class TvButton extends StatelessWidget {
             child: AnimatedContainer(
               duration: animationDuration,
               decoration: BoxDecoration(
-                color: hasFocus ? focusedColor ?? (brightness == Brightness.dark ? colors.primaryContainer : colors.primary) : unfocusedColor ?? colors.secondaryContainer,
+                color: hasFocus
+                    ? focusedColor ??
+                        (brightness == Brightness.dark
+                            ? colors.primaryContainer
+                            : colors.primary)
+                    : unfocusedColor ?? colors.secondaryContainer,
                 borderRadius: BorderRadius.circular(borderRadius ?? 2000),
               ),
               child: builder != null ? builder!(ctx, hasFocus) : child,

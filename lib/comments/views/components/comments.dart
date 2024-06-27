@@ -12,26 +12,36 @@ class CommentsView extends StatelessWidget {
   final String? source;
   final String? sortBy;
 
-  CommentsView({super.key, required this.video, this.continuation, this.source, this.sortBy});
+  const CommentsView(
+      {super.key,
+      required this.video,
+      this.continuation,
+      this.source,
+      this.sortBy});
 
   @override
   Widget build(BuildContext context) {
     var locals = AppLocalizations.of(context)!;
     var textTheme = Theme.of(context).textTheme;
     return BlocProvider(
-      create: (context) => CommentsCubit(CommentsState(video: video, sortBy: sortBy, source: source, continuation: continuation)),
-      child: BlocBuilder<CommentsCubit, CommentsState>(builder: (context, _) {
+      create: (context) => CommentsCubit(CommentsState.init(
+          video: video,
+          sortBy: sortBy,
+          source: source,
+          continuation: continuation)),
+      child:
+          BlocBuilder<CommentsCubit, CommentsState>(builder: (context, state) {
         var cubit = context.read<CommentsCubit>();
         List<Widget> widgets = [];
 
-        widgets.addAll(_.comments.comments
+        widgets.addAll(state.comments.comments
             .map((c) => SingleCommentView(
                   video: video,
                   comment: c,
                 ))
             .toList(growable: true));
 
-        if (_.continuation != null && !_.loadingComments) {
+        if (state.continuation != null && !state.loadingComments) {
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(top: 4.0),
@@ -41,13 +51,14 @@ class CommentsView extends StatelessWidget {
                       onPressed: cubit.loadMore,
                       child: Text(
                         locals.loadMore,
-                        style: TextStyle(fontSize: textTheme.labelSmall?.fontSize),
+                        style:
+                            TextStyle(fontSize: textTheme.labelSmall?.fontSize),
                       ))),
             ),
           );
         }
 
-        if (_.loadingComments) {
+        if (state.loadingComments) {
           widgets.add(Padding(
             padding: const EdgeInsets.all(8.0),
             child: Container(
@@ -61,8 +72,8 @@ class CommentsView extends StatelessWidget {
           ));
         }
 
-        return _.error.isNotEmpty
-            ? Text(_.error)
+        return state.error.isNotEmpty
+            ? Text(state.error)
             : Column(
                 children: widgets,
               );

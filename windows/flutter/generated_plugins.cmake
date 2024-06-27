@@ -3,8 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  awesome_notifications
+  awesome_notifications_core
   dynamic_color
-  objectbox_flutter_libs
   share_plus
   url_launcher_windows
 )

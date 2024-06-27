@@ -1,17 +1,21 @@
 import 'package:bloc/bloc.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:invidious/downloads/models/downloaded_video.dart';
+import 'package:invidious/player/models/media_event.dart';
 
 import '../../../videos/models/video.dart';
-import '../../models/mediaCommand.dart';
+import '../../models/media_command.dart';
+import '../player.dart';
 
 enum FullScreenState {
   fullScreen,
   notFullScreen,
-  unsupported;
 }
 
 abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
-  MediaPlayerCubit(super.initialState);
+  final PlayerCubit player;
+
+  MediaPlayerCubit(super.initialState, this.player);
 
   void disposeControllers();
 
@@ -21,7 +25,23 @@ abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
 
   void toggleControls(bool visible);
 
-  void playVideo(bool offline);
+  double getAspectRatio();
+
+  @mustCallSuper
+  void playVideo(bool offline) {
+    var duration = Duration(
+        seconds: state.offlineVideo?.lengthSeconds ??
+            state.video?.lengthSeconds ??
+            1);
+    player.setEvent(MediaEvent<Duration>(
+        state: MediaState.ready,
+        type: MediaEventType.durationChanged,
+        value: duration));
+    player.setEvent(MediaEvent<double>(
+        state: MediaState.ready,
+        type: MediaEventType.aspectRatioChanged,
+        value: getAspectRatio()));
+  }
 
   void switchToOfflineVideo(DownloadedVideo v);
 
@@ -31,28 +51,55 @@ abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
     switch (command.type) {
       case MediaCommandType.speed:
         setSpeed(command.value);
+        player.setEvent(MediaEvent(
+            state: MediaState.playing,
+            type: MediaEventType.speedChanged,
+            value: command.value));
         break;
       case MediaCommandType.switchVideo:
         SwitchVideoValue val = command.value;
         switchVideo(val.video, startAt: val.startAt);
         break;
       case MediaCommandType.switchToOfflineVideo:
-        switchToOfflineVideo(command.value);
+        DownloadedVideo offlineVideo = command.value;
+        switchToOfflineVideo(offlineVideo);
         break;
       case MediaCommandType.play:
         play();
+        player.setEvent(const MediaEvent(
+            state: MediaState.playing, type: MediaEventType.play));
         break;
       case MediaCommandType.pause:
         pause();
+        player.setEvent(const MediaEvent(
+            state: MediaState.playing, type: MediaEventType.pause));
         break;
       case MediaCommandType.mute:
         toggleVolume(false);
+        player.setEvent(const MediaEvent(
+            state: MediaState.playing,
+            type: MediaEventType.volumeChanged,
+            value: false));
         break;
       case MediaCommandType.unmute:
         toggleVolume(true);
+        player.setEvent(const MediaEvent(
+            state: MediaState.playing,
+            type: MediaEventType.volumeChanged,
+            value: true));
         break;
       case MediaCommandType.seek:
         seek(command.value);
+        player.setEvent(MediaEvent(
+            state: MediaState.playing,
+            type: MediaEventType.seek,
+            value: command.value));
+        break;
+      case MediaCommandType.enterFullScreen:
+        onEnterFullScreen();
+        break;
+      case MediaCommandType.exitFullScreen:
+        onExitFullScreen();
         break;
     }
   }
@@ -68,10 +115,6 @@ abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
   Duration? bufferedPosition();
 
   double? speed();
-
-  FullScreenState isFullScreen();
-
-  setFullScreen(bool bool);
 
   List<String> getVideoTracks();
 
@@ -91,10 +134,6 @@ abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
 
   selectSubtitle(int index);
 
-  bool supportsPip();
-
-  void enterPip();
-
   bool isMuted();
 
   void toggleVolume(bool soundOn);
@@ -110,13 +149,17 @@ abstract class MediaPlayerCubit<T extends MediaPlayerState> extends Cubit<T> {
   void toggleDash();
 
   Duration duration();
+
+  void onEnterFullScreen() {}
+
+  void onExitFullScreen() {}
 }
 
 abstract class MediaPlayerState {
-  Video? video;
-  DownloadedVideo? offlineVideo;
-  bool? playNow;
-  bool? disableControls;
+  Video? get video;
+  DownloadedVideo? get offlineVideo;
+  bool? get playNow;
+  bool? get disableControls;
 
-  MediaPlayerState({this.video, this.offlineVideo, this.playNow, this.disableControls});
+  const MediaPlayerState();
 }

@@ -1,7 +1,7 @@
+import 'package:auto_route/annotations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:invidious/app/states/app.dart';
 import 'package:invidious/globals.dart';
 import 'package:invidious/settings/states/settings.dart';
 import 'package:invidious/settings/views/tv/screens/settings.dart';
@@ -10,8 +10,9 @@ import 'package:invidious/utils/views/tv/components/tv_overscan.dart';
 import '../../../../utils.dart';
 import '../../../../utils/views/tv/components/tv_button.dart';
 
-class TvSearchHistorySettings extends StatelessWidget {
-  const TvSearchHistorySettings({Key? key}) : super(key: key);
+@RoutePage()
+class TvSearchHistorySettingsScreen extends StatelessWidget {
+  const TvSearchHistorySettingsScreen({super.key});
 
   void showClearHistoryDialog(BuildContext context) {
     var locals = AppLocalizations.of(context)!;
@@ -21,10 +22,10 @@ class TvSearchHistorySettings extends StatelessWidget {
         builder: (BuildContext context) => [
               Column(
                 children: [
-                  Text(locals.clearSearchHistory, textScaleFactor: 3),
+                  Text(locals.clearSearchHistory),
                   Padding(
                     padding: const EdgeInsets.only(top: 36),
-                    child: Text(locals.irreversibleAction, textScaleFactor: 1.5),
+                    child: Text(locals.irreversibleAction),
                   )
                 ],
               ),
@@ -35,18 +36,22 @@ class TvSearchHistorySettings extends StatelessWidget {
               Navigator.of(context).pop();
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16),
               child: Text(locals.cancel),
             ),
           ),
           TvButton(
             onPressed: (context) async {
-              db.clearSearchHistory();
-              Navigator.of(context).pop();
+              await db.clearSearchHistory();
+              if (context.mounted) {
+                Navigator.of(context).pop();
+              }
             },
             focusedColor: Colors.red,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16),
               child: Text(locals.ok),
             ),
           ),
@@ -56,12 +61,10 @@ class TvSearchHistorySettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     AppLocalizations locals = AppLocalizations.of(context)!;
-    TextTheme textTheme = Theme.of(context).textTheme;
 
-    var appCubit = context.read<AppCubit>();
     return Scaffold(
       body: BlocBuilder<SettingsCubit, SettingsState>(
-        builder: (context, _) {
+        builder: (context, state) {
           var cubit = context.read<SettingsCubit>();
           return TvOverscan(
             child: ListView(
@@ -69,13 +72,15 @@ class TvSearchHistorySettings extends StatelessWidget {
                 SettingsTitle(title: locals.searchHistoryDescription),
                 SettingsTile(
                   title: locals.enableSearchHistory,
-                  trailing: Switch(onChanged: (value) {}, value: _.useSearchHistory),
-                  onSelected: (ctx) => cubit.toggleSearchHistory(!_.useSearchHistory),
+                  trailing: Switch(
+                      onChanged: (value) {}, value: state.useSearchHistory),
+                  onSelected: (ctx) =>
+                      cubit.toggleSearchHistory(!state.useSearchHistory),
                 ),
                 AdjustmentSettingTile(
                   title: locals.searchHistoryLimit,
                   description: locals.searchHistoryLimitDescription,
-                  value: _.searchHistoryLimit,
+                  value: state.searchHistoryLimit,
                   onNewValue: cubit.setHistoryLimit,
                 ),
                 SettingsTile(

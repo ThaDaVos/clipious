@@ -1,6 +1,7 @@
+import 'package:auto_route/annotations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:invidious/utils/models/paginatedList.dart';
+import 'package:invidious/utils/models/paginated_list.dart';
 import 'package:invidious/utils/views/components/placeholders.dart';
 import 'package:invidious/utils/views/tv/components/tv_overscan.dart';
 import 'package:invidious/videos/views/tv/components/video_item.dart';
@@ -8,21 +9,29 @@ import 'package:invidious/videos/views/tv/components/video_item.dart';
 import '../../../../utils/states/item_list.dart';
 import '../../../models/video_in_list.dart';
 
-class TvGridView extends StatelessWidget {
+@RoutePage()
+class TvGridScreen extends StatelessWidget {
   final PaginatedList<VideoInList> paginatedVideoList;
   final String? tags;
   final String title;
 
-  const TvGridView({Key? key, required this.paginatedVideoList, this.tags, required this.title}) : super(key: key);
+  const TvGridScreen(
+      {super.key,
+      required this.paginatedVideoList,
+      this.tags,
+      required this.title});
 
   @override
   Widget build(BuildContext context) {
     var textTheme = Theme.of(context).textTheme;
     return BlocProvider(
-      create: (BuildContext context) => ItemListCubit(ItemListState(itemList: paginatedVideoList)),
+      create: (BuildContext context) =>
+          ItemListCubit(ItemListState(itemList: paginatedVideoList)),
       child: Scaffold(
         body: TvOverscan(
-          child: BlocBuilder<ItemListCubit<VideoInList>, ItemListState<VideoInList>>(builder: (context, _) {
+          child: BlocBuilder<ItemListCubit<VideoInList>,
+              ItemListState<VideoInList>>(builder: (context, state) {
+            var cubit = context.read<ItemListCubit<VideoInList>>();
             return Column(
               children: [
                 Row(
@@ -31,7 +40,7 @@ class TvGridView extends StatelessWidget {
                       title,
                       style: textTheme.titleLarge,
                     ),
-                    _.loading
+                    state.loading
                         ? const Padding(
                             padding: EdgeInsets.all(8.0),
                             child: SizedBox(
@@ -46,12 +55,18 @@ class TvGridView extends StatelessWidget {
                 ),
                 Expanded(
                     child: GridView.count(
-                  controller: _.scrollController,
+                  controller: cubit.scrollController,
                   childAspectRatio: 16 / 13,
                   crossAxisCount: 3,
                   children: [
-                    ..._.items.map((e) => TvVideoItem(key: ValueKey(e.videoId), video: e, autoFocus: false)).toList(),
-                    if (_.loading) ...repeatWidget(() => const TvVideoItemPlaceHolder(), count: 10)
+                    ...state.items.where((element) => !element.filterHide).map(
+                        (e) => TvVideoItem(
+                            key: ValueKey(e.videoId),
+                            video: e,
+                            autoFocus: false)),
+                    if (state.loading)
+                      ...repeatWidget(() => const TvVideoItemPlaceHolder(),
+                          count: 10)
                   ],
                 ))
               ],

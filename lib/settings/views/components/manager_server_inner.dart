@@ -1,12 +1,13 @@
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:invidious/app/states/app.dart';
-import 'package:invidious/main.dart';
-import 'package:invidious/myRouteObserver.dart';
+import 'package:invidious/router.dart';
+import 'package:invidious/settings/models/errors/cannot_add_server_error.dart';
+import 'package:invidious/settings/models/errors/missing_software_key.dart';
+import 'package:invidious/settings/models/errors/unreacheable_server.dart';
 import 'package:invidious/settings/states/server_list_settings.dart';
 import 'package:invidious/settings/states/settings.dart';
-import 'package:invidious/settings/views/screens/manage_single_server.dart';
 import 'package:settings_ui/settings_ui.dart';
 
 import '../../../utils.dart';
@@ -14,11 +15,13 @@ import '../../models/db/server.dart';
 import '../screens/settings.dart';
 
 class ManagerServersView extends StatelessWidget {
-  const ManagerServersView({super.key});
+  final bool fromWizard;
 
-  showPublicServerActions(BuildContext context, ServerListSettingsState controller, Server server) {
+  const ManagerServersView({super.key, this.fromWizard = false});
+
+  showPublicServerActions(
+      BuildContext context, ServerListSettingsState controller, Server server) {
     var locals = AppLocalizations.of(context)!;
-    var textTheme = Theme.of(context).textTheme;
     ServerListSettingsCubit cubit = context.read<ServerListSettingsCubit>();
 
     showModalBottomSheet<void>(
@@ -57,15 +60,45 @@ class ManagerServersView extends StatelessWidget {
         });
   }
 
-  saveServer(BuildContext context, ServerListSettingsState controller) async {
-    var locals = AppLocalizations.of(context)!;
+  saveServer(BuildContext context) async {
     ServerListSettingsCubit cubit = context.read<ServerListSettingsCubit>();
+    _serverServerHandling(context, cubit);
+  }
 
+  _serverServerHandling(
+      BuildContext context, ServerListSettingsCubit cubit) async {
+    var locals = AppLocalizations.of(context)!;
     try {
       await cubit.saveServer();
-      Navigator.pop(context);
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
     } catch (err) {
-      await showAlertDialog(context, 'Error', [Text(locals.invalidInvidiousServer)]);
+      if (context.mounted) {
+        if (err is CannotAddServerError) {
+          showAlertDialog(
+              context,
+              switch (err.runtimeType) {
+                (MissingSoftwareKeyError _) => locals.malformedStatsEndpoint,
+                (UnreachableServerError _) => locals.serverIsNotReachable,
+                (_) => locals.error
+              },
+              [
+                SelectableText(
+                  '${err is MissingSoftwareKeyError ? "${locals.malformedStatsEndpointDescription}\n" : ""}${err.error}',
+                  minLines: 1,
+                  maxLines: 100,
+                )
+              ]);
+        } else {
+          showAlertDialog(context, locals.error, [
+            SelectableText(
+              err.toString(),
+              maxLines: 100,
+            )
+          ]);
+        }
+      }
     }
   }
 
@@ -74,6 +107,7 @@ class ManagerServersView extends StatelessWidget {
     var locals = AppLocalizations.of(context)!;
     showDialog<String>(
         context: context,
+        useRootNavigator: false,
         builder: (BuildContext context) => Dialog(
               child: SizedBox(
                 width: 400,
@@ -85,7 +119,7 @@ class ManagerServersView extends StatelessWidget {
                     children: <Widget>[
                       Text(locals.addServer),
                       TextField(
-                        controller: cubit.state.addServerController,
+                        controller: cubit.addServerController,
                         autocorrect: false,
                         enableSuggestions: false,
                         enableIMEPersonalizedLearning: false,
@@ -101,12 +135,7 @@ class ManagerServersView extends StatelessWidget {
                           ),
                           TextButton(
                             onPressed: () async {
-                              try {
-                                await cubit.saveServer();
-                                Navigator.pop(context);
-                              } catch (err) {
-                                await showAlertDialog(context, 'Error', [Text(locals.invalidInvidiousServer)]);
-                              }
+                              _serverServerHandling(context, cubit);
                             },
                             child: Text(locals.add),
                           ),
@@ -121,13 +150,8 @@ class ManagerServersView extends StatelessWidget {
 
   openServer(BuildContext context, Server s) {
     var cubit = context.read<ServerListSettingsCubit>();
-    navigatorKey.currentState
-        ?.push(MaterialPageRoute(
-          settings: ROUTE_SETTINGS_MANAGE_ONE_SERVER,
-          builder: (context) => ManageSingleServer(
-            server: s,
-          ),
-        ))
+    AutoRouter.of(context)
+        .push(ManageSingleServerRoute(server: s))
         .then((value) => cubit.refreshServers());
   }
 
@@ -139,11 +163,14 @@ class ManagerServersView extends StatelessWidget {
     var textTheme = Theme.of(context).textTheme;
 
     return BlocBuilder<ServerListSettingsCubit, ServerListSettingsState>(
-      builder: (ctx, _) {
+      builder: (ctx, state) {
         SettingsCubit settings = context.watch<SettingsCubit>();
         ServerListSettingsCubit cubit = context.read<ServerListSettingsCubit>();
-        var app = context.read<AppCubit>();
-        var filteredPublicServers = _.publicServers.where((s) => _.dbServers.indexWhere((element) => element.url == s.url) == -1).toList();
+        var filteredPublicServers = state.publicServers
+            .where((s) =>
+                state.dbServers.indexWhere((element) => element.url == s.url) ==
+                -1)
+            .toList();
         return Stack(
           children: [
             SettingsList(
@@ -162,8 +189,8 @@ class ManagerServersView extends StatelessWidget {
                 ),
                 SettingsSection(
                     title: Text(locals.yourServers),
-                    tiles: _.dbServers.isNotEmpty
-                        ? _.dbServers
+                    tiles: state.dbServers.isNotEmpty
+                        ? state.dbServers
                             .map((s) => SettingsTile(
                                   leading: InkWell(
                                     onTap: () => cubit.switchServer(s),
@@ -171,13 +198,17 @@ class ManagerServersView extends StatelessWidget {
                                       padding: const EdgeInsets.all(8.0),
                                       child: Icon(
                                         Icons.done,
-                                        color: s.url == app.state.server?.url ? colorScheme.primary : colorScheme.secondaryContainer,
+                                        color: s.inUse
+                                            ? colorScheme.primary
+                                            : colorScheme.secondaryContainer,
                                       ),
                                     ),
                                   ),
                                   title: Text(s.url),
-                                  value: Text('${cubit.isLoggedInToServer(s.url) ? '${locals.loggedIn}, ' : ''} ${locals.tapToManage}'),
-                                  onPressed: (context) => openServer(context, s),
+                                  value: Text(
+                                      '${cubit.isLoggedInToServer(s.url) ? '${locals.loggedIn}, ' : ''} ${locals.tapToManage}'),
+                                  onPressed: (context) =>
+                                      openServer(context, s),
                                 ))
                             .toList()
                         : [
@@ -190,14 +221,14 @@ class ManagerServersView extends StatelessWidget {
                           ]),
                 SettingsSection(
                     title: Text(locals.publicServers),
-                    tiles: _.publicServersError != PublicServerErrors.none
+                    tiles: state.publicServersError != PublicServerErrors.none
                         ? [
                             SettingsTile(
                               onPressed: (context) => cubit.getPublicServers(),
                               title: Text(locals.publicServersError),
                             )
                           ]
-                        : _.pinging
+                        : state.pinging
                             ? [
                                 SettingsTile(
                                   title: Text(locals.loadingPublicServer),
@@ -206,7 +237,9 @@ class ManagerServersView extends StatelessWidget {
                                       width: 15,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        value: _.publicServerProgress > 0 ? _.publicServerProgress : null,
+                                        value: state.publicServerProgress > 0
+                                            ? state.publicServerProgress
+                                            : null,
                                       )),
                                 )
                               ]
@@ -216,14 +249,34 @@ class ManagerServersView extends StatelessWidget {
                                       title: Row(
                                         children: [
                                           Expanded(child: Text('${s.url} ')),
-                                          Text((s.ping != null && s.ping!.compareTo(const Duration(seconds: pingTimeout)) == -1) ? '${s.ping?.inMilliseconds}ms' : '>${pingTimeout}s',
-                                              style: textTheme.labelLarge?.copyWith(color: colorScheme.secondary))
+                                          Text(
+                                              (s.ping != null &&
+                                                      s.ping!.compareTo(
+                                                              const Duration(
+                                                                  seconds:
+                                                                      pingTimeout)) ==
+                                                          -1)
+                                                  ? '${s.ping?.inMilliseconds}ms'
+                                                  : '>${pingTimeout}s',
+                                              style: textTheme.labelLarge
+                                                  ?.copyWith(
+                                                      color: colorScheme
+                                                          .secondary))
                                         ],
                                       ),
                                       value: Wrap(
-                                        children: [Visibility(visible: s.flag != null && s.region != null, child: Text('${s.flag} - ${s.region} - ')), Text(locals.tapToAddServer)],
+                                        children: [
+                                          Visibility(
+                                              visible: s.flag != null &&
+                                                  s.region != null,
+                                              child: Text(
+                                                  '${s.flag} - ${s.region} - ')),
+                                          Text(locals.tapToAddServer)
+                                        ],
                                       ),
-                                      onPressed: (context) => showPublicServerActions(context, _, s),
+                                      onPressed: (context) =>
+                                          showPublicServerActions(
+                                              context, state, s),
                                     ))
                                 .toList()),
               ],

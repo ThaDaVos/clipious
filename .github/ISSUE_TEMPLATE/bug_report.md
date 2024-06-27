@@ -7,6 +7,14 @@ assignees: ''
 
 ---
 
+<!--
+Your thumbnails are not working ? check: https://github.com/lamarios/clipious/wiki/Common-Issues#video-thumbnails-not-working
+Having issues with channel subscriptions or playlist management ? check: https://github.com/lamarios/clipious/wiki/Common-Issues#cant-subscribe-to-channel-add-video-to-a-playlist-and-similar-issues
+-->
+
+
+
+
 **Describe the bug**
 A clear and concise description of what the bug is.
 
